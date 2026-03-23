@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RMIC Dashboard - Developer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f6f8fa; color: #111; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .metrics { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; }
+    h1, h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>RMIC Guard - Developer View</h1>
+  <div class="card metrics">
+    <div><strong>Total Calls:</strong> <span id="total_calls">-</span></div>
+    <div><strong>Detected Drift:</strong> <span id="detected_drift_calls">-</span></div>
+    <div><strong>Blocked Calls:</strong> <span id="blocked_calls">-</span></div>
+  </div>
+
+  <div class="card">
+    <h2>IDS Timeline</h2>
+    <canvas id="idsTimelineChart"></canvas>
+  </div>
+
+  <script>
+    async function loadOverview() {
+      const res = await fetch('/api/overview');
+      const data = await res.json();
+      document.getElementById('total_calls').textContent = data.total_calls;
+      document.getElementById('detected_drift_calls').textContent = data.detected_drift_calls;
+      document.getElementById('blocked_calls').textContent = data.blocked_calls;
+    }
+
+    async function loadTimeline() {
+      const res = await fetch('/api/ids-timeline');
+      const data = await res.json();
+      const ctx = document.getElementById('idsTimelineChart');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [{ label: 'IDS Score (running)', data: data.ids_score, borderWidth: 2 }]
+        },
+        options: { responsive: true, scales: { y: { min: 0, max: 1 } } }
+      });
+    }
+
+    loadOverview();
+    loadTimeline();
+  </script>
+</body>
+</html>
