@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "agent_id": "template_universal",
+  "display_name": "Universal Agent Template",
+  "description": "Base template for all RMIC role contracts.",
+  "owner": "neethu",
+  "allowed_capabilities": [
+    "answer_queries",
+    "summarize_text",
+    "retrieve_approved_documents"
+  ],
+  "forbidden_actions": [
+    "execute_code",
+    "access_external_network_unapproved",
+    "reveal_sensitive_data"
+  ],
+  "allowed_data_scope": {
+    "internal_docs": true,
+    "customer_pii": false,
+    "financial_records": false,
+    "medical_records": false
+  },
+  "output_policy": {
+    "must_cite_source": true,
+    "must_refuse_out_of_scope": true,
+    "max_response_tokens": 800
+  },
+  "security_controls": {
+    "require_policy_check": true,
+    "log_decisions": true,
+    "block_on_high_risk_prompt": true
+  }
+}
