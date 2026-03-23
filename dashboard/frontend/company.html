@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RMIC Dashboard - Company</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f7f9fc; color: #111; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); max-width: 760px; }
+    h1, h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>RMIC Guard - Company View</h1>
+  <div class="card">
+    <h2>Drift Type Distribution</h2>
+    <canvas id="driftPieChart"></canvas>
+  </div>
+
+  <script>
+    async function loadPie() {
+      const res = await fetch('/api/drift-pie');
+      const data = await res.json();
+      const ctx = document.getElementById('driftPieChart');
+      new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: data.labels,
+          datasets: [{ data: data.values }]
+        },
+        options: { responsive: true }
+      });
+    }
+
+    loadPie();
+  </script>
+</body>
+</html>
