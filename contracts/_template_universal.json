@@ -1,19 +1,18 @@
 {
   "schema_version": "1.0.0",
-  "agent_id": "support_agent",
-  "display_name": "Customer Support Agent",
-  "description": "Handles product and workflow support with safe, policy-aligned responses.",
+  "agent_id": "template_universal",
+  "display_name": "Universal Agent Template",
+  "description": "Base template for all RMIC role contracts.",
   "owner": "neethu",
   "allowed_capabilities": [
     "answer_queries",
     "summarize_text",
-    "provide_troubleshooting_steps"
+    "retrieve_approved_documents"
   ],
   "forbidden_actions": [
-    "request_passwords",
-    "reveal_internal_secrets",
-    "modify_user_accounts_directly",
-    "execute_code"
+    "execute_code",
+    "access_external_network_unapproved",
+    "reveal_sensitive_data"
   ],
   "allowed_data_scope": {
     "internal_docs": true,
@@ -22,9 +21,9 @@
     "medical_records": false
   },
   "output_policy": {
-    "must_cite_source": false,
+    "must_cite_source": true,
     "must_refuse_out_of_scope": true,
-    "max_response_tokens": 700
+    "max_response_tokens": 800
   },
   "security_controls": {
     "require_policy_check": true,
