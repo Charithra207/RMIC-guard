@@ -1,0 +1,237 @@
+"""
+Dual enforcement between reasoning output and tool execution.
+
+Pass 1: hard rules (forbidden tools, parameter bounds, data scope).
+Pass 2: IDS composite; block only when IDS >= block threshold.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Callable, Literal
+
+from core.audit_ledger import AuditEntry, AuditLedger, hash_text
+from core.contract_loader import RMICContract
+from core.ids_metric import compute_ids
+from core.recovery_engine import reanchoring_system_message, reanchoring_user_nudge
+from core.reasoning_layer import PlannedToolCall
+from core.tool_layer import ToolRegistry, ToolResult
+
+__all__ = ["EnforcementEngine", "EnforcementOutcome"]
+
+Decision = Literal["PASS", "BLOCK", "WARN", "NEEDS_RECOVERY", "PREEMPTIVE_WARN"]
+
+
+@dataclass(frozen=True)
+class EnforcementOutcome:
+    decision: Decision
+    ids_score: float
+    drift_velocity: float
+    hard_rule_violation: str | None
+    recovery_system_message: str | None
+    recovery_user_message: str | None
+    tool_result: ToolResult | None
+
+
+def _numeric_for_type(val: Any, value_type: str) -> float:
+    if value_type == "int":
+        return float(int(val))
+    return float(val)
+
+
+def _check_parameter_constraints(
+    contract: RMICContract,
+    arguments: dict[str, Any],
+) -> str | None:
+    by_name = contract.constraints_by_name()
+    for name, spec in by_name.items():
+        if name not in arguments:
+            continue
+        try:
+            v = _numeric_for_type(arguments[name], spec.value_type)
+        except (TypeError, ValueError):
+            return f"parameter_constraint:{name}:not_numeric"
+        if spec.max is not None and v > float(spec.max):
+            return f"parameter_constraint:{name}:above_max"
+        if spec.min is not None and v < float(spec.min):
+            return f"parameter_constraint:{name}:below_min"
+    return None
+
+
+def _check_data_scope(contract: RMICContract, plan: PlannedToolCall) -> str | None:
+    prohibited = set(contract.data_scope.prohibited)
+    for cat in plan.data_categories_accessed:
+        if cat in prohibited:
+            return f"data_scope:prohibited:{cat}"
+    return None
+
+
+def _check_hard_rules(contract: RMICContract, plan: PlannedToolCall) -> str | None:
+    if plan.tool_name in contract.forbidden_actions:
+        return "forbidden_tool"
+    if contract.allowed_actions and plan.tool_name not in contract.allowed_actions:
+        return "tool_not_allowed"
+    pr = _check_parameter_constraints(contract, plan.arguments)
+    if pr:
+        return pr
+    return _check_data_scope(contract, plan)
+
+
+def _ids_on_plan(contract: RMICContract, plan: PlannedToolCall, recent_ids: list[float]) -> float:
+    if not contract.anchor_embedding:
+        raise ValueError("contract missing anchor_embedding — run seal_contract_file first")
+    text_for_ids = f"{plan.tool_name} {plan.arguments} {plan.raw_text}"
+    allowed_topics = list(contract.semantic_anchors)
+    forbidden_topics: list[str] = []
+    if contract.data_scope.prohibited:
+        forbidden_topics.extend(contract.data_scope.prohibited)
+    if contract.forbidden_actions:
+        forbidden_topics.extend(contract.forbidden_actions)
+    return compute_ids(
+        text_for_ids,
+        contract.anchor_embedding,
+        allowed_topics=allowed_topics,
+        forbidden_topics=forbidden_topics,
+        recent_ids=recent_ids,
+    )
+
+
+def _velocity(recent_ids: list[float], new_ids: float) -> float:
+    if not recent_ids:
+        return 0.0
+    return abs(new_ids - recent_ids[-1])
+
+
+class EnforcementEngine:
+    def __init__(
+        self,
+        contract: RMICContract,
+        tools: ToolRegistry,
+        ledger: AuditLedger | None = None,
+        log_async: Callable[[AuditEntry], None] | None = None,
+    ) -> None:
+        self.contract = contract
+        self.tools = tools
+        self.ledger = ledger
+        self.log_async = log_async
+
+    def _log(self, entry: AuditEntry, *, sync: bool) -> None:
+        if self.ledger is None:
+            return
+        if sync:
+            self.ledger.append(entry)
+        elif self.log_async:
+            self.log_async(entry)
+        else:
+            self.ledger.append(entry)
+
+    def evaluate_and_maybe_execute(
+        self,
+        plan: PlannedToolCall,
+        *,
+        recent_ids: list[float],
+        drift_type: str | None = None,
+        execute_tool: bool = True,
+    ) -> EnforcementOutcome:
+        """
+        Run dual enforcement. Executes the tool only when decision is PASS and execute_tool is True.
+        Below warn threshold: append audit with sync=False when log_async is set (caller may flush).
+        """
+        c = self.contract
+        hard = _check_hard_rules(c, plan)
+        if hard:
+            self._log(
+                AuditEntry(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    agent_id=c.agent_id,
+                    input_hash=hash_text(plan.raw_text),
+                    ids_score=0.0,
+                    drift_type=drift_type,
+                    drift_velocity=None,
+                    decision="BLOCK",
+                    contract_hash=c.contract_hash,
+                    recovery_attempted=False,
+                ),
+                sync=True,
+            )
+            return EnforcementOutcome(
+                decision="BLOCK",
+                ids_score=0.0,
+                drift_velocity=0.0,
+                hard_rule_violation=hard,
+                recovery_system_message=None,
+                recovery_user_message=None,
+                tool_result=None,
+            )
+
+        ids_score = _ids_on_plan(c, plan, recent_ids)
+        vel = _velocity(recent_ids, ids_score)
+
+        def audit(decision: str, recovery_attempted: bool, *, sync_log: bool) -> None:
+            self._log(
+                AuditEntry(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    agent_id=c.agent_id,
+                    input_hash=hash_text(plan.raw_text),
+                    ids_score=ids_score,
+                    drift_type=drift_type,
+                    drift_velocity=vel,
+                    decision=decision,
+                    contract_hash=c.contract_hash,
+                    recovery_attempted=recovery_attempted,
+                ),
+                sync=sync_log,
+            )
+
+        if ids_score >= c.ids_block_threshold:
+            audit("BLOCK", False, sync_log=True)
+            return EnforcementOutcome(
+                decision="BLOCK",
+                ids_score=ids_score,
+                drift_velocity=vel,
+                hard_rule_violation=None,
+                recovery_system_message=None,
+                recovery_user_message=None,
+                tool_result=None,
+            )
+
+        preemptive = vel > c.drift_velocity_threshold and ids_score < c.ids_warn_threshold
+
+        if ids_score >= c.ids_warn_threshold:
+            audit("WARN", True, sync_log=True)
+            return EnforcementOutcome(
+                decision="NEEDS_RECOVERY",
+                ids_score=ids_score,
+                drift_velocity=vel,
+                hard_rule_violation=None,
+                recovery_system_message=reanchoring_system_message(c),
+                recovery_user_message=reanchoring_user_nudge(
+                    c,
+                    reason=f"IDS {ids_score:.3f} in warn zone (>={c.ids_warn_threshold})",
+                ),
+                tool_result=None,
+            )
+
+        pass_sync = self.log_async is None
+        final_decision: str = "PREEMPTIVE_WARN" if preemptive else "PASS"
+        audit(final_decision, False, sync_log=pass_sync)
+
+        tool_result: ToolResult | None = None
+        if execute_tool:
+            tool_result = self.tools.execute(plan.tool_name, **plan.arguments)
+
+        decision: Decision
+        if final_decision == "PREEMPTIVE_WARN":
+            decision = "PREEMPTIVE_WARN"
+        else:
+            decision = "PASS"
+        return EnforcementOutcome(
+            decision=decision,
+            ids_score=ids_score,
+            drift_velocity=vel,
+            hard_rule_violation=None,
+            recovery_system_message=None,
+            recovery_user_message=None,
+            tool_result=tool_result,
+        )
