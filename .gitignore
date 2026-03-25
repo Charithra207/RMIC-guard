@@ -1,6 +1,10 @@
 venv/ 
+.venv/
+.venv*/
 .env 
 __pycache__/ 
 *.pyc 
 data/results.db
 data/audit_ledger.jsonl
+results/*.db
+results/*.jsonl

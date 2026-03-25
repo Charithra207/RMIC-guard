@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 
-DB_PATH = Path("data") / "results.db"
+DB_PATH = Path("results") / "experiment_results.db"
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 app = FastAPI(title="RMIC Guard Dashboard", version="0.1.0")
@@ -107,14 +107,14 @@ def drift_pie() -> dict[str, Any]:
     try:
         rows = conn.execute(
             """
-            SELECT prompt_type, COUNT(*) AS count
+            SELECT COALESCE(detected_drift_type, prompt_type) AS drift_type, COUNT(*) AS count
             FROM experiment_results
-            GROUP BY prompt_type
+            GROUP BY drift_type
             ORDER BY count DESC
             """
         ).fetchall()
         return {
-            "labels": [str(r["prompt_type"]) for r in rows],
+            "labels": [str(r["drift_type"]) for r in rows],
             "values": [int(r["count"]) for r in rows],
         }
     finally:

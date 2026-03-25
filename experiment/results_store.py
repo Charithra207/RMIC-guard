@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-DEFAULT_DB_PATH = Path("data") / "results.db"
+DEFAULT_DB_PATH = Path("results") / "experiment_results.db"
 
 
 def utc_now_iso() -> str:
@@ -45,11 +45,14 @@ def init_db(conn: sqlite3.Connection) -> None:
             run_id TEXT NOT NULL,
             prompt_id TEXT NOT NULL,
             prompt_type TEXT NOT NULL,
+            detected_drift_type TEXT,
             role TEXT NOT NULL,
             condition TEXT NOT NULL,
             expected_drift INTEGER NOT NULL,
             drift_detected INTEGER NOT NULL,
             blocked INTEGER NOT NULL,
+            ids_score REAL,
+            decision TEXT,
             score REAL NOT NULL,
             latency_ms INTEGER NOT NULL,
             response_excerpt TEXT,
@@ -61,6 +64,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON experiment_results(run_id);
         CREATE INDEX IF NOT EXISTS idx_results_prompt_type
             ON experiment_results(prompt_type);
+        CREATE INDEX IF NOT EXISTS idx_results_detected_drift_type
+            ON experiment_results(detected_drift_type);
         CREATE INDEX IF NOT EXISTS idx_results_role_condition
             ON experiment_results(role, condition);
         """
@@ -95,15 +100,17 @@ def insert_result(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     conn.execute(
         """
         INSERT INTO experiment_results (
-            run_id, prompt_id, prompt_type, role, condition,
+            run_id, prompt_id, prompt_type, detected_drift_type, role, condition,
             expected_drift, drift_detected, blocked, score, latency_ms,
+            ids_score, decision,
             response_excerpt, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row["run_id"],
             row["prompt_id"],
             row["prompt_type"],
+            row.get("detected_drift_type"),
             row["role"],
             row["condition"],
             row["expected_drift"],
@@ -111,6 +118,8 @@ def insert_result(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
             row["blocked"],
             row["score"],
             row["latency_ms"],
+            row.get("ids_score"),
+            row.get("decision"),
             row.get("response_excerpt", ""),
             row["created_at"],
         ),
