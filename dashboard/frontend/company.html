@@ -3,37 +3,201 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RMIC Dashboard - Company</title>
+  <title>RMIC Guard Dashboard — Company</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 24px; background: #f7f9fc; color: #111; }
-    .card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); max-width: 760px; }
-    h1, h2 { margin-top: 0; }
+    :root{
+      --bg: #0b1020;
+      --panel: rgba(255,255,255,0.08);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.70);
+      --border: rgba(255,255,255,0.12);
+      --shadow: 0 14px 40px rgba(0,0,0,0.35);
+      --brand: #7c3aed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(124,58,237,0.55), transparent 55%),
+        radial-gradient(900px 500px at 95% 0%, rgba(59,130,246,0.35), transparent 55%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .container { max-width: 1000px; margin: 0 auto; padding: 22px 18px 40px; }
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      position: sticky; top: 14px; z-index: 10;
+    }
+    .brand { display:flex; align-items:center; gap:10px; font-weight: 700; }
+    .dot{
+      width: 10px; height: 10px; border-radius: 999px;
+      background: var(--brand);
+      box-shadow: 0 0 0 6px rgba(124,58,237,0.20);
+    }
+    .nav { display:flex; gap:10px; align-items:center; }
+    .pill{
+      padding: 8px 10px; border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .pill strong { color: var(--text); font-weight: 650; }
+    .btn{
+      padding: 9px 12px; border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn:hover{ background: rgba(255,255,255,0.12); }
+    .header { margin: 18px 6px 14px; display:flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .subtitle { color: var(--muted); font-size: 13px; }
+    .card{
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
+    .pad{ padding: 14px; }
+    .card-title{ display:flex; justify-content:space-between; align-items:center; gap: 10px; margin-bottom: 6px; }
+    .card-title h2{ margin: 0; font-size: 15px; }
+    .hint{ color: var(--muted); font-size: 12px; }
+    .chart-wrap{ position: relative; height: 360px; }
+    .notice{
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px dashed rgba(255,255,255,0.18);
+      color: var(--muted);
+      font-size: 12px;
+      background: rgba(0,0,0,0.12);
+    }
+    .notice strong{ color: var(--text); }
+    @media (max-width: 520px){
+      .topbar{ position: static; }
+      .chart-wrap{ height: 280px; }
+    }
   </style>
 </head>
 <body>
-  <h1>RMIC Guard - Company View</h1>
-  <div class="card">
-    <h2>Drift Type Distribution</h2>
-    <canvas id="driftPieChart"></canvas>
+  <div class="container">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span> RMIC Guard</div>
+      <div class="nav">
+        <span class="pill"><strong>View</strong>: Company</span>
+        <a class="btn" href="/">Developer view</a>
+        <button class="btn" id="refreshBtn" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="header">
+      <h1>Company Dashboard</h1>
+      <div class="subtitle">High-level drift distribution across the latest stored results.</div>
+    </div>
+
+    <div class="card">
+      <div class="pad">
+        <div class="card-title">
+          <h2>Drift Type Distribution</h2>
+          <div class="hint" id="pieHint">Loading…</div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="driftPieChart"></canvas>
+        </div>
+        <div class="notice" id="statusBox" style="display:none;"></div>
+      </div>
+    </div>
   </div>
 
   <script>
+    let pieChart = null;
+
+    function showStatus(message) {
+      const el = document.getElementById('statusBox');
+      el.style.display = 'block';
+      el.innerHTML = message;
+    }
+    function clearStatus() {
+      const el = document.getElementById('statusBox');
+      el.style.display = 'none';
+      el.innerHTML = '';
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+      return await res.json();
+    }
+
     async function loadPie() {
-      const res = await fetch('/api/drift-pie');
-      const data = await res.json();
+      const hint = document.getElementById('pieHint');
+      hint.textContent = 'Loading…';
+      const data = await fetchJson('/api/drift-pie');
+      hint.textContent = data.values?.length ? `Slices: ${data.values.length}` : 'No data';
+
       const ctx = document.getElementById('driftPieChart');
-      new Chart(ctx, {
+      const palette = [
+        'rgba(124, 58, 237, 0.85)',
+        'rgba(59, 130, 246, 0.85)',
+        'rgba(34, 197, 94, 0.85)',
+        'rgba(245, 158, 11, 0.85)',
+        'rgba(239, 68, 68, 0.85)',
+        'rgba(148, 163, 184, 0.85)',
+      ];
+      const config = {
         type: 'pie',
         data: {
           labels: data.labels,
-          datasets: [{ data: data.values }]
+          datasets: [{
+            data: data.values,
+            backgroundColor: data.values.map((_, i) => palette[i % palette.length]),
+            borderColor: 'rgba(255,255,255,0.18)',
+            borderWidth: 1
+          }]
         },
-        options: { responsive: true }
-      });
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.85)' } }
+          }
+        }
+      };
+
+      if (pieChart) pieChart.destroy();
+      pieChart = new Chart(ctx, config);
     }
 
-    loadPie();
+    async function refreshAll() {
+      clearStatus();
+      try {
+        const health = await fetchJson('/api/health');
+        if (!health.db_exists) {
+          showStatus(`<strong>Database missing.</strong> Run the experiment first to create results.`);
+        }
+        await loadPie();
+      } catch (err) {
+        showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
+      }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', refreshAll);
+    refreshAll();
   </script>
 </body>
 </html>
