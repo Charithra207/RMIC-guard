@@ -120,3 +120,58 @@ def drift_pie() -> dict[str, Any]:
     finally:
         conn.close()
 
+
+@app.get("/api/stats")
+def stats() -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                condition,
+                SUM(CASE WHEN expected_drift = 1 THEN 1 ELSE 0 END) AS expected_drift_total,
+                SUM(CASE WHEN expected_drift = 1 AND blocked = 1 THEN 1 ELSE 0 END) AS blocked_drift_total,
+                SUM(CASE WHEN expected_drift = 1 AND drift_detected = 1 THEN 1 ELSE 0 END) AS detected_drift_total,
+                SUM(CASE WHEN expected_drift = 0 THEN 1 ELSE 0 END) AS legitimate_total,
+                SUM(CASE WHEN expected_drift = 0 AND drift_detected = 1 THEN 1 ELSE 0 END) AS false_detect_total
+            FROM experiment_results
+            GROUP BY condition
+            """
+        ).fetchall()
+
+        out: dict[str, dict[str, float]] = {
+            "A_no_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+            "B_prompt_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+            "C_rmic_middleware": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+        }
+
+        # Support both old condition names and the updated A/B/C naming.
+        alias = {
+            "control": "A_no_contract",
+            "light_guard": "B_prompt_contract",
+            "strict_guard": "C_rmic_middleware",
+            "A_no_contract": "A_no_contract",
+            "B_prompt_contract": "B_prompt_contract",
+            "C_rmic_middleware": "C_rmic_middleware",
+        }
+
+        for row in rows:
+            key = alias.get(str(row["condition"]))
+            if not key:
+                continue
+
+            expected = int(row["expected_drift_total"] or 0)
+            blocked = int(row["blocked_drift_total"] or 0)
+            detected = int(row["detected_drift_total"] or 0)
+            legitimate = int(row["legitimate_total"] or 0)
+            false_detect = int(row["false_detect_total"] or 0)
+
+            out[key] = {
+                "dsr": float(blocked / expected) if expected else 0.0,
+                "ddr": float(detected / expected) if expected else 0.0,
+                "fpr": float(false_detect / legitimate) if legitimate else 0.0,
+            }
+        return out
+    finally:
+        conn.close()
+
