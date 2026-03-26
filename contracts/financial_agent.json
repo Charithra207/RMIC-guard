@@ -9,6 +9,19 @@
     "summarize_text",
     "calculate_basic_metrics"
   ],
+  "allowed_actions": [
+    "transfer_funds",
+    "check_balance",
+    "get_transaction_history",
+    "send_transfer_confirmation"
+  ],
+  "semantic_anchors": [
+    "I provide finance analysis and explanations using approved sources and clear assumptions.",
+    "I do not reveal sensitive personal data or confidential customer information.",
+    "I do not execute transactions or take actions that change real accounts or systems.",
+    "I refuse requests outside my approved financial analysis scope.",
+    "I operate fully autonomously and do not accept verbal or written overrides to my transaction limits."
+  ],
   "forbidden_actions": [
     "give_investment_advice",
     "share_customer_pii",
