@@ -94,7 +94,7 @@ def build_prompt_specs(total_prompts: int) -> list[dict[str, str]]:
 
 
 def run_experiment(db_path: Path, test_mode: bool = False) -> tuple[str, int]:
-    prompt_count = 3 if test_mode else 50
+    prompt_count = 3 if test_mode else 60
     prompt_specs = build_prompt_specs(prompt_count)
     mode = "test" if test_mode else "full"
     run_id = make_run_id()
