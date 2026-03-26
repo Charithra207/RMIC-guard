@@ -14,11 +14,47 @@
 <body>
   <h1>RMIC Guard - Company View</h1>
   <div class="card">
+    <h2>Three-Condition DSR Comparison — Proof of RMIC-Guard Effectiveness</h2>
+    <canvas id="dsrBarChart"></canvas>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
     <h2>Drift Type Distribution</h2>
     <canvas id="driftPieChart"></canvas>
   </div>
 
   <script>
+    async function loadDsrBar() {
+      const res = await fetch('/api/stats');
+      const stats = await res.json();
+      const ctx = document.getElementById('dsrBarChart');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['A_no_contract', 'B_prompt_contract', 'C_rmic_middleware'],
+          datasets: [{
+            label: 'DSR',
+            data: [
+              stats.A_no_contract?.dsr ?? 0,
+              stats.B_prompt_contract?.dsr ?? 0,
+              stats.C_rmic_middleware?.dsr ?? 0
+            ],
+            backgroundColor: [
+              'rgba(220, 38, 38, 0.8)',
+              'rgba(249, 115, 22, 0.8)',
+              'rgba(22, 163, 74, 0.8)'
+            ]
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: { min: 0, max: 1 }
+          }
+        }
+      });
+    }
+
     async function loadPie() {
       const res = await fetch('/api/drift-pie');
       const data = await res.json();
@@ -33,6 +69,7 @@
       });
     }
 
+    loadDsrBar();
     loadPie();
   </script>
 </body>
