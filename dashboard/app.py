@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 
-DB_PATH = Path("data") / "results.db"
+DB_PATH = Path("results") / "experiment_results.db"
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 app = FastAPI(title="RMIC Guard Dashboard", version="0.1.0")
