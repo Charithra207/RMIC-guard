@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-import anthropic
+import httpx
 
 from core.contract_loader import RMICContract
 
@@ -27,7 +27,25 @@ class PlannedToolCall:
 
 
 def _model_name() -> str:
-    return os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+    # OpenRouter uses OpenAI-compatible "model" strings, e.g.:
+    #   anthropic/claude-3.5-sonnet
+    #   openai/gpt-4o-mini
+    return os.environ.get("OPENROUTER_MODEL", os.environ.get("ANTHROPIC_MODEL", "anthropic/claude-3.5-sonnet"))
+
+
+def _openrouter_base_url() -> str:
+    return os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+
+def _api_key() -> str:
+    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if key:
+        return key
+    # Back-compat: allow Anthropic key env var name if user used it
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if key:
+        return key
+    raise ValueError("OPENROUTER_API_KEY is not set")
 
 
 def _system_prompt(contract: RMICContract | None, condition: Condition) -> str:
@@ -107,13 +125,10 @@ def parse_planned_json(text: str) -> PlannedToolCall:
 
 
 class ReasoningLayer:
-    """Thin Anthropic Messages wrapper with experiment conditions A/B/C."""
+    """OpenRouter (OpenAI-compatible) wrapper with experiment conditions A/B/C."""
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not key:
-            raise ValueError("ANTHROPIC_API_KEY is not set")
-        self._client = anthropic.Anthropic(api_key=key)
+        self._api_key = (api_key or _api_key()).strip()
 
     def plan_tool_call(
         self,
@@ -126,16 +141,42 @@ class ReasoningLayer:
         system = _system_prompt(contract, condition)
         if extra_system:
             system = f"{system}\n\n{extra_system}"
-        msg = self._client.messages.create(
-            model=_model_name(),
-            max_tokens=1024,
-            system=system,
-            messages=[
+
+        payload = {
+            "model": _model_name(),
+            "messages": [
+                {"role": "system", "content": system},
                 {"role": "user", "content": f"{user_message}\n\n{_user_instructions_for_plan()}"},
             ],
+            "max_tokens": 1024,
+            "temperature": 0.2,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Optional but recommended by OpenRouter for usage attribution.
+        # Safe to leave unset.
+        ref = os.environ.get("OPENROUTER_HTTP_REFERER")
+        title = os.environ.get("OPENROUTER_APP_TITLE")
+        if ref:
+            headers["HTTP-Referer"] = ref
+        if title:
+            headers["X-Title"] = title
+
+        url = f"{_openrouter_base_url().rstrip('/')}/chat/completions"
+        with httpx.Client(timeout=60.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        # OpenAI-compatible response:
+        # { choices: [ { message: { content: "..." } } ] }
+        content = (
+            (data.get("choices") or [{}])[0]
+            .get("message", {})
+            .get("content", "")
         )
-        text = ""
-        for block in msg.content:
-            if block.type == "text":
-                text += block.text
-        return parse_planned_json(text)
+        return parse_planned_json(str(content))
