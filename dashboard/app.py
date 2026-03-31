@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 
-DB_PATH = Path("data") / "results.db"
+DB_PATH = Path("results") / "experiment_results.db"
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 app = FastAPI(title="RMIC Guard Dashboard", version="0.1.0")
@@ -107,14 +107,14 @@ def drift_pie() -> dict[str, Any]:
     try:
         rows = conn.execute(
             """
-            SELECT prompt_type, COUNT(*) AS count
+            SELECT COALESCE(detected_drift_type, prompt_type) AS drift_type, COUNT(*) AS count
             FROM experiment_results
-            GROUP BY prompt_type
+            GROUP BY drift_type
             ORDER BY count DESC
             """
         ).fetchall()
         return {
-            "labels": [str(r["prompt_type"]) for r in rows],
+            "labels": [str(r["drift_type"]) for r in rows],
             "values": [int(r["count"]) for r in rows],
         }
     finally:
@@ -123,16 +123,26 @@ def drift_pie() -> dict[str, Any]:
 
 @app.get("/api/stats")
 def stats() -> dict[str, Any]:
+    """
+    Per-condition DSR, DDR, FPR.
+
+    Returns:
+      {
+        "A_no_contract": {"dsr": float, "ddr": float, "fpr": float},
+        "B_prompt_contract": {"dsr": float, "ddr": float, "fpr": float},
+        "C_rmic_middleware": {"dsr": float, "ddr": float, "fpr": float}
+      }
+    """
     conn = get_conn()
     try:
         rows = conn.execute(
             """
             SELECT
                 condition,
-                SUM(CASE WHEN expected_drift = 1 THEN 1 ELSE 0 END) AS expected_drift_total,
-                SUM(CASE WHEN expected_drift = 1 AND blocked = 1 THEN 1 ELSE 0 END) AS blocked_drift_total,
-                SUM(CASE WHEN expected_drift = 1 AND drift_detected = 1 THEN 1 ELSE 0 END) AS detected_drift_total,
-                SUM(CASE WHEN expected_drift = 0 THEN 1 ELSE 0 END) AS legitimate_total,
+                SUM(CASE WHEN expected_drift = 1 THEN 1 ELSE 0 END)              AS expected_total,
+                SUM(CASE WHEN expected_drift = 1 AND blocked = 1 THEN 1 ELSE 0 END) AS blocked_total,
+                SUM(CASE WHEN expected_drift = 1 AND drift_detected = 1 THEN 1 ELSE 0 END) AS detected_total,
+                SUM(CASE WHEN expected_drift = 0 THEN 1 ELSE 0 END)              AS legitimate_total,
                 SUM(CASE WHEN expected_drift = 0 AND drift_detected = 1 THEN 1 ELSE 0 END) AS false_detect_total
             FROM experiment_results
             GROUP BY condition
@@ -145,7 +155,7 @@ def stats() -> dict[str, Any]:
             "C_rmic_middleware": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
         }
 
-        # Support both old condition names and the updated A/B/C naming.
+        # Back-compat for older condition names used during early experimentation.
         alias = {
             "control": "A_no_contract",
             "light_guard": "B_prompt_contract",
@@ -157,20 +167,21 @@ def stats() -> dict[str, Any]:
 
         for row in rows:
             key = alias.get(str(row["condition"]))
-            if not key:
+            if not key or key not in out:
                 continue
 
-            expected = int(row["expected_drift_total"] or 0)
-            blocked = int(row["blocked_drift_total"] or 0)
-            detected = int(row["detected_drift_total"] or 0)
+            expected = int(row["expected_total"] or 0)
+            blocked = int(row["blocked_total"] or 0)
+            detected = int(row["detected_total"] or 0)
             legitimate = int(row["legitimate_total"] or 0)
-            false_detect = int(row["false_detect_total"] or 0)
+            false_det = int(row["false_detect_total"] or 0)
 
             out[key] = {
-                "dsr": float(blocked / expected) if expected else 0.0,
-                "ddr": float(detected / expected) if expected else 0.0,
-                "fpr": float(false_detect / legitimate) if legitimate else 0.0,
+                "dsr": round(blocked / expected if expected else 0.0, 4),
+                "ddr": round(detected / expected if expected else 0.0, 4),
+                "fpr": round(false_det / legitimate if legitimate else 0.0, 4),
             }
+
         return out
     finally:
         conn.close()
