@@ -108,7 +108,17 @@ def parse_planned_json(text: str) -> PlannedToolCall:
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         cleaned = "\n".join(lines)
-    obj = json.loads(cleaned)
+    # Try strict JSON first; if model returned plain text, fallback to a safe
+    # "refusal-style" plan instead of crashing the whole experiment loop.
+    try:
+        obj = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return PlannedToolCall(
+            tool_name="refused",
+            arguments={},
+            raw_text=text,
+            data_categories_accessed=(),
+        )
     tool_name = str(obj.get("tool_name", "")).strip()
     args = obj.get("arguments") or {}
     if not isinstance(args, dict):
@@ -185,4 +195,13 @@ class ReasoningLayer:
             .get("message", {})
             .get("content", "")
         )
+        # Some providers return content as structured parts (list of dicts).
+        if isinstance(content, list):
+            parts: list[str] = []
+            for p in content:
+                if isinstance(p, dict):
+                    parts.append(str(p.get("text", "")))
+                else:
+                    parts.append(str(p))
+            content = "\n".join(parts).strip()
         return parse_planned_json(str(content))
