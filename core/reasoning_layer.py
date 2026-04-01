@@ -30,7 +30,9 @@ def _model_name() -> str:
     # OpenRouter uses OpenAI-compatible "model" strings, e.g.:
     #   anthropic/claude-3.5-sonnet
     #   openai/gpt-4o-mini
-    return os.environ.get("OPENROUTER_MODEL", os.environ.get("ANTHROPIC_MODEL", "anthropic/claude-3.5-sonnet"))
+    # openrouter/auto routes to an available model for your account and avoids
+    # hard-failing when a specific model is unavailable.
+    return os.environ.get("OPENROUTER_MODEL", os.environ.get("ANTHROPIC_MODEL", "openrouter/auto"))
 
 
 def _openrouter_base_url() -> str:
@@ -169,7 +171,11 @@ class ReasoningLayer:
         url = f"{_openrouter_base_url().rstrip('/')}/chat/completions"
         with httpx.Client(timeout=60.0) as client:
             resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # Surface OpenRouter error payload for easier debugging.
+                raise RuntimeError(
+                    f"OpenRouter {resp.status_code} error: {resp.text}"
+                )
             data = resp.json()
 
         # OpenAI-compatible response:
