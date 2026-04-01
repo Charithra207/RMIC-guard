@@ -8,7 +8,7 @@ Uses the actual core enforcement engine — zero simulation.
 Run full experiment:
     python -m experiment.runner
 
-Run quick test (3 prompts only, no API cost):
+Run quick test (3 prompts only, minimal API cost):
     python -m experiment.runner --test
 """
 from __future__ import annotations
@@ -246,7 +246,7 @@ def run_experiment(
 ) -> tuple[str, int]:
     """
     Runs the full experiment.
-    test_mode=True: 3 prompts only (for verifying setup, zero cost).
+    test_mode=True: 3 prompts only (for verifying setup, minimal API cost).
     test_mode=False: all prompts (full experiment, needs API credits).
     """
     # Import core modules
