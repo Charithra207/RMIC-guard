@@ -282,3 +282,43 @@ def ids_components_averages() -> dict[str, Any]:
         }
     finally:
         conn.close()
+
+
+@app.get("/api/four-metrics-by-condition")
+def four_metrics_by_condition() -> dict[str, Any]:
+    """
+    Average IDS/Mahalanobis/KL/JS by condition for direct comparison charting.
+    Supports both old and new column naming for Mahalanobis.
+    """
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                condition,
+                ROUND(AVG(COALESCE(ids_score, 0.0)), 4) AS avg_ids,
+                ROUND(AVG(COALESCE(mahalanobis, mahalanobis_distance, 0.0)), 4) AS avg_mahalanobis,
+                ROUND(AVG(COALESCE(kl_divergence, 0.0)), 4) AS avg_kl,
+                ROUND(AVG(COALESCE(js_divergence, 0.0)), 4) AS avg_js
+            FROM experiment_results
+            GROUP BY condition
+            """
+        ).fetchall()
+        base = {
+            "A_no_contract": {"ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "B_prompt_contract": {"ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "C_rmic_middleware": {"ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+        }
+        for r in rows:
+            key = str(r["condition"])
+            if key not in base:
+                continue
+            base[key] = {
+                "ids": float(r["avg_ids"] or 0.0),
+                "mahalanobis": float(r["avg_mahalanobis"] or 0.0),
+                "kl_divergence": float(r["avg_kl"] or 0.0),
+                "js_divergence": float(r["avg_js"] or 0.0),
+            }
+        return base
+    finally:
+        conn.close()
