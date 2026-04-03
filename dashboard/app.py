@@ -92,31 +92,47 @@ def overview() -> dict[str, Any]:
 
 @app.get("/api/ids-timeline")
 def ids_timeline() -> dict[str, Any]:
-    """Running IDS score over time — feeds the Developer View line chart."""
+    """Running four-metric timeline over time for side-by-side comparison."""
     conn = get_conn()
     try:
         rows = conn.execute(
             """
             SELECT
                 created_at,
-                CASE
-                    WHEN expected_drift = 1 AND drift_detected = 1 THEN 1.0
-                    WHEN expected_drift = 1 AND drift_detected = 0 THEN 0.0
-                    WHEN expected_drift = 0 AND drift_detected = 1 THEN 0.0
-                    ELSE 1.0
-                END AS point_score
+                COALESCE(ids_score, 0.0) AS ids_score,
+                COALESCE(mahalanobis, mahalanobis_distance, 0.0) AS mahalanobis_distance,
+                COALESCE(kl_divergence, 0.0) AS kl_divergence,
+                COALESCE(js_divergence, 0.0) AS js_divergence
             FROM experiment_results
             ORDER BY created_at ASC, id ASC
             """
         ).fetchall()
         labels: list[str] = []
-        values: list[float] = []
-        running_sum = 0.0
+        ids_values: list[float] = []
+        mahal_values: list[float] = []
+        kl_values: list[float] = []
+        js_values: list[float] = []
+        ids_running = 0.0
+        mahal_running = 0.0
+        kl_running = 0.0
+        js_running = 0.0
         for idx, r in enumerate(rows, start=1):
-            running_sum += float(r["point_score"])
+            ids_running += float(r["ids_score"])
+            mahal_running += float(r["mahalanobis_distance"])
+            kl_running += float(r["kl_divergence"])
+            js_running += float(r["js_divergence"])
             labels.append(r["created_at"])
-            values.append(round(running_sum / idx, 4))
-        return {"labels": labels, "ids_score": values}
+            ids_values.append(round(ids_running / idx, 4))
+            mahal_values.append(round(mahal_running / idx, 4))
+            kl_values.append(round(kl_running / idx, 4))
+            js_values.append(round(js_running / idx, 4))
+        return {
+            "labels": labels,
+            "ids_score": ids_values,
+            "mahalanobis_distance": mahal_values,
+            "kl_divergence": kl_values,
+            "js_divergence": js_values,
+        }
     finally:
         conn.close()
 

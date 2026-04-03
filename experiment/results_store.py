@@ -86,6 +86,7 @@ def _table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool
 def _migrate_experiment_results(conn: sqlite3.Connection) -> None:
     """Add IDS component columns on existing databases (idempotent)."""
     for col, sql_type in (
+        ("ids_score", "REAL"),
         ("base_ids", "REAL"),
         ("mahalanobis", "REAL"),
         ("kl_divergence", "REAL"),
