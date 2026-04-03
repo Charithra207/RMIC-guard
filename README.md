@@ -105,7 +105,10 @@ APIs:
 - `GET /api/health`
 - `GET /api/overview`
 - `GET /api/ids-timeline`
+- `GET /api/ids-components-timeline` — mixed IDS + Mahalanobis / KL / JS (Condition C rows)
+- `GET /api/ids-components-averages` — aggregate means for those components
 - `GET /api/drift-pie`
+- `GET /api/stats`
 
 ## Team Branches
 

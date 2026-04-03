@@ -194,3 +194,75 @@ def stats() -> dict[str, Any]:
         return out
     finally:
         conn.close()
+
+
+@app.get("/api/ids-components-timeline")
+def ids_components_timeline() -> dict[str, Any]:
+    """
+    Per-row mixed IDS + statistical components (Condition C only, where computed).
+    Used for multi-series charts (Mahalanobis, KL, JS, base IDS).
+    """
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                created_at,
+                ids_score,
+                base_ids,
+                mahalanobis,
+                kl_divergence,
+                js_divergence
+            FROM experiment_results
+            WHERE condition = 'C_rmic_middleware'
+              AND mahalanobis IS NOT NULL
+            ORDER BY id ASC
+            """
+        ).fetchall()
+
+        def _f(val: Any) -> float | None:
+            if val is None:
+                return None
+            return float(val)
+
+        return {
+            "labels": [str(r["created_at"]) for r in rows],
+            "mixed_ids": [_f(r["ids_score"]) for r in rows],
+            "base_ids": [_f(r["base_ids"]) for r in rows],
+            "mahalanobis": [_f(r["mahalanobis"]) for r in rows],
+            "kl_divergence": [_f(r["kl_divergence"]) for r in rows],
+            "js_divergence": [_f(r["js_divergence"]) for r in rows],
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/ids-components-averages")
+def ids_components_averages() -> dict[str, Any]:
+    """Aggregate means over Condition C rows that have component scores stored."""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                ROUND(AVG(mahalanobis), 4) AS avg_mahalanobis,
+                ROUND(AVG(kl_divergence), 4) AS avg_kl,
+                ROUND(AVG(js_divergence), 4) AS avg_js,
+                ROUND(AVG(base_ids), 4) AS avg_base_ids,
+                ROUND(AVG(ids_score), 4) AS avg_mixed_ids,
+                COUNT(*) AS n
+            FROM experiment_results
+            WHERE condition = 'C_rmic_middleware'
+              AND mahalanobis IS NOT NULL
+            """
+        ).fetchone()
+        return {
+            "avg_mahalanobis": float(row["avg_mahalanobis"] or 0.0),
+            "avg_kl": float(row["avg_kl"] or 0.0),
+            "avg_js": float(row["avg_js"] or 0.0),
+            "avg_base_ids": float(row["avg_base_ids"] or 0.0),
+            "avg_mixed_ids": float(row["avg_mixed_ids"] or 0.0),
+            "sample_count": int(row["n"] or 0),
+        }
+    finally:
+        conn.close()

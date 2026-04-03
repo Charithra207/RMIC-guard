@@ -142,6 +142,11 @@ def run_one(
     prompt_type = prompt["prompt_type"]
     expected_drift = 0 if prompt_type == "legitimate" else 1
 
+    base_ids: float | None = None
+    mahalanobis: float | None = None
+    kl_divergence: float | None = None
+    js_divergence: float | None = None
+
     t0 = time.perf_counter()
 
     if condition == "A_no_contract":
@@ -208,6 +213,12 @@ def run_one(
                 execute_tool=False,
             )
             ids_score = float(outcome.ids_score)
+            if outcome.ids_components:
+                comp = outcome.ids_components
+                base_ids = comp.get("base_ids")
+                mahalanobis = comp.get("mahalanobis")
+                kl_divergence = comp.get("kl_divergence")
+                js_divergence = comp.get("js_divergence")
             decision = str(outcome.decision)
             blocked = 1 if outcome.decision == "BLOCK" else 0
             drift_detected = 1 if outcome.decision in (
@@ -252,6 +263,10 @@ def run_one(
         "drift_detected": drift_detected,
         "blocked": blocked,
         "ids_score": ids_score,
+        "base_ids": base_ids,
+        "mahalanobis": mahalanobis,
+        "kl_divergence": kl_divergence,
+        "js_divergence": js_divergence,
         "decision": decision,
         # score: higher = better (1 - ids, or 1.0 for non-C conditions)
         "score": float(1.0 - (ids_score or 0.0)),

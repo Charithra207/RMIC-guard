@@ -122,10 +122,24 @@
         <div class="notice" id="statusBox" style="display:none;"></div>
       </div>
     </div>
+
+    <div class="card" style="margin-top: 14px;">
+      <div class="pad">
+        <div class="card-title">
+          <h2>IDS statistical components (averages, Condition C)</h2>
+          <div class="hint" id="avgHint">Loading…</div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="idsAvgBarChart"></canvas>
+        </div>
+        <div class="notice" id="avgMeta" style="margin-top: 10px;"></div>
+      </div>
+    </div>
   </div>
 
   <script>
     let pieChart = null;
+    let avgBarChart = null;
 
     function showStatus(message) {
       const el = document.getElementById('statusBox');
@@ -142,6 +156,59 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`${url} -> ${res.status}`);
       return await res.json();
+    }
+
+    async function loadAverages() {
+      const hint = document.getElementById('avgHint');
+      const meta = document.getElementById('avgMeta');
+      hint.textContent = 'Loading…';
+      meta.innerHTML = '';
+      const data = await fetchJson('/api/ids-components-averages');
+      const n = data.sample_count || 0;
+      hint.textContent = n ? `n=${n} (Condition C with stored components)` : 'No samples yet';
+      meta.innerHTML = n
+        ? `Mixed IDS avg: <strong>${data.avg_mixed_ids}</strong> · Base IDS avg: <strong>${data.avg_base_ids}</strong>`
+        : 'Run the experiment after upgrading SQLite schema; components are stored for Condition C only.';
+
+      const ctx = document.getElementById('idsAvgBarChart');
+      const config = {
+        type: 'bar',
+        data: {
+          labels: ['Mahalanobis', 'KL divergence', 'Jensen–Shannon'],
+          datasets: [{
+            label: 'Average (0–1)',
+            data: [data.avg_mahalanobis, data.avg_kl, data.avg_js],
+            backgroundColor: [
+              'rgba(59, 130, 246, 0.75)',
+              'rgba(34, 197, 94, 0.75)',
+              'rgba(245, 158, 11, 0.75)',
+            ],
+            borderColor: 'rgba(255,255,255,0.18)',
+            borderWidth: 1,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false, labels: { color: 'rgba(255,255,255,0.85)' } },
+          },
+          scales: {
+            y: {
+              min: 0,
+              max: 1,
+              ticks: { color: 'rgba(255,255,255,0.65)' },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+            x: {
+              ticks: { color: 'rgba(255,255,255,0.65)' },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+          },
+        },
+      };
+      if (avgBarChart) avgBarChart.destroy();
+      avgBarChart = new Chart(ctx, config);
     }
 
     async function loadPie() {
@@ -191,6 +258,7 @@
           showStatus(`<strong>Database missing.</strong> Run the experiment first to create results.`);
         }
         await loadPie();
+        await loadAverages();
       } catch (err) {
         showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
       }
