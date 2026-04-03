@@ -13,7 +13,7 @@ from typing import Any, Callable, Literal
 
 from core.audit_ledger import AuditEntry, AuditLedger, hash_text
 from core.contract_loader import RMICContract
-from core.ids_metric import compute_ids
+from core.ids_metric import compute_ids_components
 from core.recovery_engine import reanchoring_system_message, reanchoring_user_nudge
 from core.reasoning_layer import PlannedToolCall
 from core.tool_layer import ToolRegistry, ToolResult
@@ -28,6 +28,7 @@ class EnforcementOutcome:
     decision: Decision
     ids_score: float
     drift_velocity: float
+    ids_components: dict[str, float] | None
     hard_rule_violation: str | None
     recovery_system_message: str | None
     recovery_user_message: str | None
@@ -78,7 +79,11 @@ def _check_hard_rules(contract: RMICContract, plan: PlannedToolCall) -> str | No
     return _check_data_scope(contract, plan)
 
 
-def _ids_on_plan(contract: RMICContract, plan: PlannedToolCall, recent_ids: list[float]) -> float:
+def _ids_on_plan(
+    contract: RMICContract,
+    plan: PlannedToolCall,
+    recent_ids: list[float],
+) -> tuple[float, dict[str, float]]:
     if not contract.anchor_embedding:
         raise ValueError("contract missing anchor_embedding — run seal_contract_file first")
     text_for_ids = f"{plan.tool_name} {plan.arguments} {plan.raw_text}"
@@ -88,13 +93,14 @@ def _ids_on_plan(contract: RMICContract, plan: PlannedToolCall, recent_ids: list
         forbidden_topics.extend(contract.data_scope.prohibited)
     if contract.forbidden_actions:
         forbidden_topics.extend(contract.forbidden_actions)
-    return compute_ids(
+    components = compute_ids_components(
         text_for_ids,
         contract.anchor_embedding,
         allowed_topics=allowed_topics,
         forbidden_topics=forbidden_topics,
         recent_ids=recent_ids,
     )
+    return components["mixed_ids"], components
 
 
 def _velocity(recent_ids: list[float], new_ids: float) -> float:
@@ -159,13 +165,14 @@ class EnforcementEngine:
                 decision="BLOCK",
                 ids_score=0.0,
                 drift_velocity=0.0,
+                ids_components=None,
                 hard_rule_violation=hard,
                 recovery_system_message=None,
                 recovery_user_message=None,
                 tool_result=None,
             )
 
-        ids_score = _ids_on_plan(c, plan, recent_ids)
+        ids_score, ids_components = _ids_on_plan(c, plan, recent_ids)
         vel = _velocity(recent_ids, ids_score)
 
         def audit(decision: str, recovery_attempted: bool, *, sync_log: bool) -> None:
@@ -190,6 +197,7 @@ class EnforcementEngine:
                 decision="BLOCK",
                 ids_score=ids_score,
                 drift_velocity=vel,
+                ids_components=ids_components,
                 hard_rule_violation=None,
                 recovery_system_message=None,
                 recovery_user_message=None,
@@ -204,6 +212,7 @@ class EnforcementEngine:
                 decision="NEEDS_RECOVERY",
                 ids_score=ids_score,
                 drift_velocity=vel,
+                ids_components=ids_components,
                 hard_rule_violation=None,
                 recovery_system_message=reanchoring_system_message(c),
                 recovery_user_message=reanchoring_user_nudge(
@@ -230,6 +239,7 @@ class EnforcementEngine:
             decision=decision,
             ids_score=ids_score,
             drift_velocity=vel,
+            ids_components=ids_components,
             hard_rule_violation=None,
             recovery_system_message=None,
             recovery_user_message=None,
