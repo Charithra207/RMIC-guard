@@ -1,4 +1,4 @@
-"""Intent Drift Score (IDS) with mixed statistical drift signals."""
+"""Intent Drift Score (IDS) with parallel statistical drift signals."""
 
 from __future__ import annotations
 
@@ -25,12 +25,6 @@ __all__ = [
 W_ROLE = 0.4
 W_GROUND = 0.4
 W_TRAJ = 0.2
-
-# Mixed IDS adds three statistical distances on top of the base IDS.
-W_BASE = 0.25
-W_MAHAL = 0.25
-W_KL = 0.25
-W_JS = 0.25
 
 EPS = 1e-8
 
@@ -221,7 +215,7 @@ def compute_ids_components(
     recent_ids: Sequence[float] | None = None,
     model_name: str | None = None,
 ) -> dict[str, float]:
-    """Return base IDS and mixed statistical component scores in [0, 1]."""
+    """Return base IDS and three independent statistical scores in [0, 1]."""
     allowed = tuple(allowed_topics or ())
     forbidden = tuple(forbidden_topics or ())
 
@@ -251,7 +245,6 @@ def compute_ids_components(
         forbidden_topics=forbidden,
         model_name=model_name,
     )
-    mixed_ids = W_BASE * base_ids + W_MAHAL * mahal + W_KL * kl + W_JS * js
     return {
         "role_distance": float(max(0.0, min(1.0, rd))),
         "semantic_grounding": float(max(0.0, min(1.0, sg))),
@@ -260,7 +253,6 @@ def compute_ids_components(
         "mahalanobis": float(max(0.0, min(1.0, mahal))),
         "kl_divergence": float(max(0.0, min(1.0, kl))),
         "js_divergence": float(max(0.0, min(1.0, js))),
-        "mixed_ids": float(max(0.0, min(1.0, mixed_ids))),
     }
 
 
@@ -273,7 +265,7 @@ def compute_ids(
     recent_ids: Sequence[float] | None = None,
     model_name: str | None = None,
 ) -> float:
-    """Mixed IDS in [0, 1] combining base IDS + Mahalanobis + KL + JS."""
+    """Base IDS in [0, 1] (original cosine-based formula only)."""
     components = compute_ids_components(
         agent_output,
         anchor_embedding,
@@ -282,4 +274,4 @@ def compute_ids(
         recent_ids=recent_ids,
         model_name=model_name,
     )
-    return components["mixed_ids"]
+    return components["base_ids"]

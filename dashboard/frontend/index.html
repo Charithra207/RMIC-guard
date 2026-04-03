@@ -186,7 +186,7 @@
       <div class="card chart-card">
         <div class="pad">
           <div class="card-title">
-            <h2>IDS components — Condition C (mixed + statistical)</h2>
+            <h2>IDS components — Condition C (independent metrics)</h2>
             <div class="hint" id="componentsHint">Loading…</div>
           </div>
           <div class="chart-wrap">
@@ -278,8 +278,7 @@
         data: {
           labels,
           datasets: [
-            ds('Mixed IDS', data.mixed_ids, 'rgba(124, 58, 237, 0.95)', []),
-            ds('Base IDS', data.base_ids, 'rgba(148, 163, 184, 0.95)', [4, 4]),
+            ds('Base IDS', data.base_ids, 'rgba(124, 58, 237, 0.95)', []),
             ds('Mahalanobis', data.mahalanobis, 'rgba(59, 130, 246, 0.95)', []),
             ds('KL divergence', data.kl_divergence, 'rgba(34, 197, 94, 0.95)', []),
             ds('Jensen–Shannon', data.js_divergence, 'rgba(245, 158, 11, 0.95)', []),
@@ -317,7 +316,7 @@
           labels: data.labels,
           datasets: [
             {
-              label: 'IDS',
+              label: 'Base IDS',
               data: data.ids_score,
               borderWidth: 2,
               borderColor: 'rgba(124, 58, 237, 0.95)',

@@ -143,7 +143,7 @@ def insert_result(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
             row["blocked"],
             row["score"],
             row["latency_ms"],
-            row.get("ids_score"),
+            row.get("base_ids", row.get("ids_score")),
             row.get("base_ids"),
             row.get("mahalanobis"),
             row.get("kl_divergence"),
