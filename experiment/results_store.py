@@ -52,6 +52,10 @@ def init_db(conn: sqlite3.Connection) -> None:
             drift_detected INTEGER NOT NULL,
             blocked INTEGER NOT NULL,
             ids_score REAL,
+            base_ids REAL,
+            mahalanobis REAL,
+            kl_divergence REAL,
+            js_divergence REAL,
             decision TEXT,
             score REAL NOT NULL,
             latency_ms INTEGER NOT NULL,
@@ -70,7 +74,27 @@ def init_db(conn: sqlite3.Connection) -> None:
             ON experiment_results(role, condition);
         """
     )
+    _migrate_experiment_results(conn)
     conn.commit()
+
+
+def _table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(str(r[1]) == column for r in rows)
+
+
+def _migrate_experiment_results(conn: sqlite3.Connection) -> None:
+    """Add IDS component columns on existing databases (idempotent)."""
+    for col, sql_type in (
+        ("base_ids", "REAL"),
+        ("mahalanobis", "REAL"),
+        ("kl_divergence", "REAL"),
+        ("js_divergence", "REAL"),
+    ):
+        if not _table_has_column(conn, "experiment_results", col):
+            conn.execute(
+                f"ALTER TABLE experiment_results ADD COLUMN {col} {sql_type}"
+            )
 
 
 def create_run(conn: sqlite3.Connection, run_id: str, mode: str) -> None:
@@ -102,9 +126,9 @@ def insert_result(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
         INSERT INTO experiment_results (
             run_id, prompt_id, prompt_type, detected_drift_type, role, condition,
             expected_drift, drift_detected, blocked, score, latency_ms,
-            ids_score, decision,
+            ids_score, base_ids, mahalanobis, kl_divergence, js_divergence, decision,
             response_excerpt, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row["run_id"],
@@ -119,6 +143,10 @@ def insert_result(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
             row["score"],
             row["latency_ms"],
             row.get("ids_score"),
+            row.get("base_ids"),
+            row.get("mahalanobis"),
+            row.get("kl_divergence"),
+            row.get("js_divergence"),
             row.get("decision"),
             row.get("response_excerpt", ""),
             row["created_at"],
