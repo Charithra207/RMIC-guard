@@ -100,7 +100,7 @@ def _ids_on_plan(
         forbidden_topics=forbidden_topics,
         recent_ids=recent_ids,
     )
-    return components["mixed_ids"], components
+    return components["base_ids"], components
 
 
 def _velocity(recent_ids: list[float], new_ids: float) -> float:

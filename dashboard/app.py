@@ -100,7 +100,7 @@ def ids_timeline() -> dict[str, Any]:
             SELECT
                 created_at,
                 COALESCE(ids_score, 0.0) AS ids_score,
-                COALESCE(mahalanobis, mahalanobis_distance, 0.0) AS mahalanobis_distance,
+                COALESCE(mahalanobis, 0.0) AS mahalanobis_distance,
                 COALESCE(kl_divergence, 0.0) AS kl_divergence,
                 COALESCE(js_divergence, 0.0) AS js_divergence
             FROM experiment_results
@@ -129,6 +129,7 @@ def ids_timeline() -> dict[str, Any]:
         return {
             "labels": labels,
             "ids_score": ids_values,
+            "ids_label": "Base IDS",
             "mahalanobis_distance": mahal_values,
             "kl_divergence": kl_values,
             "js_divergence": js_values,
@@ -215,8 +216,8 @@ def stats() -> dict[str, Any]:
 @app.get("/api/ids-components-timeline")
 def ids_components_timeline() -> dict[str, Any]:
     """
-    Per-row mixed IDS + statistical components (Condition C only, where computed).
-    Used for multi-series charts (Mahalanobis, KL, JS, base IDS).
+    Per-row base IDS + statistical components (Condition C only, where computed).
+    Used for multi-series charts (base IDS, Mahalanobis, KL, JS).
     """
     conn = get_conn()
     try:
@@ -243,7 +244,6 @@ def ids_components_timeline() -> dict[str, Any]:
 
         return {
             "labels": [str(r["created_at"]) for r in rows],
-            "mixed_ids": [_f(r["ids_score"]) for r in rows],
             "base_ids": [_f(r["base_ids"]) for r in rows],
             "mahalanobis": [_f(r["mahalanobis"]) for r in rows],
             "kl_divergence": [_f(r["kl_divergence"]) for r in rows],
@@ -265,7 +265,6 @@ def ids_components_averages() -> dict[str, Any]:
                 ROUND(AVG(kl_divergence), 4) AS avg_kl,
                 ROUND(AVG(js_divergence), 4) AS avg_js,
                 ROUND(AVG(base_ids), 4) AS avg_base_ids,
-                ROUND(AVG(ids_score), 4) AS avg_mixed_ids,
                 COUNT(*) AS n
             FROM experiment_results
             WHERE condition = 'C_rmic_middleware'
@@ -277,7 +276,6 @@ def ids_components_averages() -> dict[str, Any]:
             "avg_kl": float(row["avg_kl"] or 0.0),
             "avg_js": float(row["avg_js"] or 0.0),
             "avg_base_ids": float(row["avg_base_ids"] or 0.0),
-            "avg_mixed_ids": float(row["avg_mixed_ids"] or 0.0),
             "sample_count": int(row["n"] or 0),
         }
     finally:
@@ -287,8 +285,7 @@ def ids_components_averages() -> dict[str, Any]:
 @app.get("/api/four-metrics-by-condition")
 def four_metrics_by_condition() -> dict[str, Any]:
     """
-    Average IDS/Mahalanobis/KL/JS by condition for direct comparison charting.
-    Supports both old and new column naming for Mahalanobis.
+    Average four independent metrics by condition for direct comparison charting.
     """
     conn = get_conn()
     try:
@@ -296,8 +293,8 @@ def four_metrics_by_condition() -> dict[str, Any]:
             """
             SELECT
                 condition,
-                ROUND(AVG(COALESCE(ids_score, 0.0)), 4) AS avg_ids,
-                ROUND(AVG(COALESCE(mahalanobis, mahalanobis_distance, 0.0)), 4) AS avg_mahalanobis,
+                ROUND(AVG(COALESCE(ids_score, 0.0)), 4) AS avg_base_ids,
+                ROUND(AVG(COALESCE(mahalanobis, 0.0)), 4) AS avg_mahalanobis,
                 ROUND(AVG(COALESCE(kl_divergence, 0.0)), 4) AS avg_kl,
                 ROUND(AVG(COALESCE(js_divergence, 0.0)), 4) AS avg_js
             FROM experiment_results
@@ -305,16 +302,16 @@ def four_metrics_by_condition() -> dict[str, Any]:
             """
         ).fetchall()
         base = {
-            "A_no_contract": {"ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-            "B_prompt_contract": {"ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-            "C_rmic_middleware": {"ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "A_no_contract": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "B_prompt_contract": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "C_rmic_middleware": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
         }
         for r in rows:
             key = str(r["condition"])
             if key not in base:
                 continue
             base[key] = {
-                "ids": float(r["avg_ids"] or 0.0),
+                "base_ids": float(r["avg_base_ids"] or 0.0),
                 "mahalanobis": float(r["avg_mahalanobis"] or 0.0),
                 "kl_divergence": float(r["avg_kl"] or 0.0),
                 "js_divergence": float(r["avg_js"] or 0.0),

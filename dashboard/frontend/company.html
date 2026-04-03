@@ -107,51 +107,29 @@
 
     <div class="header">
       <h1>Company Dashboard</h1>
-      <div class="subtitle">High-level drift distribution across the latest stored results.</div>
+      <div class="subtitle">Independent drift metrics across A/B/C conditions.</div>
     </div>
 
     <div class="card">
       <div class="pad">
         <div class="card-title">
-          <h2>Four-Metric Comparison Across Conditions</h2>
-          <div class="hint">IDS vs Mahalanobis vs KL vs JS</div>
+          <h2>Four Independent IDS Metrics — Condition Comparison</h2>
+          <div class="hint" id="metricsHint">Loading…</div>
         </div>
         <div class="chart-wrap">
           <canvas id="fourMetricsComparisonChart"></canvas>
         </div>
+        <div class="notice">
+          Base IDS measures cosine-based role distance, semantic grounding, and trajectory curvature — this drives enforcement decisions.
+          Mahalanobis, KL Divergence, and Jensen-Shannon are independent statistical drift measures computed in parallel for comparison only.
+          For Conditions A and B, statistical metrics show binary proxy values. All 4 are never blended.
+        </div>
       </div>
     </div>
-
-    <div class="card" style="margin-top: 14px;">
-      <div class="pad">
-        <div class="card-title">
-          <h2>Drift Type Distribution</h2>
-          <div class="hint" id="pieHint">Loading…</div>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="driftPieChart"></canvas>
-        </div>
-        <div class="notice" id="statusBox" style="display:none;"></div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top: 14px;">
-      <div class="pad">
-        <div class="card-title">
-          <h2>IDS statistical components (averages, Condition C)</h2>
-          <div class="hint" id="avgHint">Loading…</div>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="idsAvgBarChart"></canvas>
-        </div>
-        <div class="notice" id="avgMeta" style="margin-top: 10px;"></div>
-      </div>
-    </div>
+    <div class="notice" id="statusBox" style="margin-top: 14px; display:none;"></div>
   </div>
 
   <script>
-    let pieChart = null;
-    let avgBarChart = null;
     let fourMetricsChart = null;
 
     function showStatus(message) {
@@ -171,108 +149,46 @@
       return await res.json();
     }
 
-    async function loadAverages() {
-      const hint = document.getElementById('avgHint');
-      const meta = document.getElementById('avgMeta');
-      hint.textContent = 'Loading…';
-      meta.innerHTML = '';
-      const data = await fetchJson('/api/ids-components-averages');
-      const n = data.sample_count || 0;
-      hint.textContent = n ? `n=${n} (Condition C with stored components)` : 'No samples yet';
-      meta.innerHTML = n
-        ? `Mixed IDS avg: <strong>${data.avg_mixed_ids}</strong> · Base IDS avg: <strong>${data.avg_base_ids}</strong>`
-        : 'Run the experiment after upgrading SQLite schema; components are stored for Condition C only.';
-
-      const ctx = document.getElementById('idsAvgBarChart');
-      const config = {
-        type: 'bar',
-        data: {
-          labels: ['Mahalanobis', 'KL divergence', 'Jensen–Shannon'],
-          datasets: [{
-            label: 'Average (0–1)',
-            data: [data.avg_mahalanobis, data.avg_kl, data.avg_js],
-            backgroundColor: [
-              'rgba(59, 130, 246, 0.75)',
-              'rgba(34, 197, 94, 0.75)',
-              'rgba(245, 158, 11, 0.75)',
-            ],
-            borderColor: 'rgba(255,255,255,0.18)',
-            borderWidth: 1,
-          }],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false, labels: { color: 'rgba(255,255,255,0.85)' } },
-          },
-          scales: {
-            y: {
-              min: 0,
-              max: 1,
-              ticks: { color: 'rgba(255,255,255,0.65)' },
-              grid: { color: 'rgba(255,255,255,0.06)' },
-            },
-            x: {
-              ticks: { color: 'rgba(255,255,255,0.65)' },
-              grid: { color: 'rgba(255,255,255,0.06)' },
-            },
-          },
-        },
-      };
-      if (avgBarChart) avgBarChart.destroy();
-      avgBarChart = new Chart(ctx, config);
-    }
-
     async function loadFourMetricComparison() {
+      const hint = document.getElementById('metricsHint');
+      hint.textContent = 'Loading…';
       const data = await fetchJson('/api/four-metrics-by-condition');
       const labels = ['A_no_contract', 'B_prompt_contract', 'C_rmic_middleware'];
+      hint.textContent = 'A/B/C conditions';
 
       const ctx = document.getElementById('fourMetricsComparisonChart');
       const config = {
-        type: 'line',
+        type: 'bar',
         data: {
           labels,
           datasets: [
             {
-              label: 'IDS',
-              data: labels.map(k => data[k]?.ids ?? 0),
-              borderColor: 'rgba(124, 58, 237, 0.95)',
-              backgroundColor: 'rgba(124, 58, 237, 0.12)',
-              borderWidth: 2,
-              tension: 0.2,
-              pointRadius: 3,
-              fill: false
+              label: 'Base IDS',
+              data: labels.map(k => data[k]?.base_ids ?? 0),
+              backgroundColor: 'rgba(124, 58, 237, 0.85)',
+              borderColor: 'rgba(124, 58, 237, 1.0)',
+              borderWidth: 1,
             },
             {
-              label: 'Mahalanobis Distance',
+              label: 'Mahalanobis',
               data: labels.map(k => data[k]?.mahalanobis ?? 0),
-              borderColor: 'rgba(59, 130, 246, 0.95)',
-              backgroundColor: 'rgba(59, 130, 246, 0.12)',
-              borderWidth: 2,
-              tension: 0.2,
-              pointRadius: 3,
-              fill: false
+              backgroundColor: 'rgba(59, 130, 246, 0.85)',
+              borderColor: 'rgba(59, 130, 246, 1.0)',
+              borderWidth: 1,
             },
             {
               label: 'KL Divergence',
               data: labels.map(k => data[k]?.kl_divergence ?? 0),
-              borderColor: 'rgba(245, 158, 11, 0.95)',
-              backgroundColor: 'rgba(245, 158, 11, 0.12)',
-              borderWidth: 2,
-              tension: 0.2,
-              pointRadius: 3,
-              fill: false
+              backgroundColor: 'rgba(245, 158, 11, 0.85)',
+              borderColor: 'rgba(245, 158, 11, 1.0)',
+              borderWidth: 1,
             },
             {
-              label: 'Jensen-Shannon Divergence',
+              label: 'Jensen-Shannon',
               data: labels.map(k => data[k]?.js_divergence ?? 0),
-              borderColor: 'rgba(34, 197, 94, 0.95)',
-              backgroundColor: 'rgba(34, 197, 94, 0.12)',
-              borderWidth: 2,
-              tension: 0.2,
-              pointRadius: 3,
-              fill: false
+              backgroundColor: 'rgba(34, 197, 94, 0.85)',
+              borderColor: 'rgba(34, 197, 94, 1.0)',
+              borderWidth: 1,
             }
           ]
         },
@@ -280,12 +196,20 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: 'rgba(255,255,255,0.85)' } }
+            legend: {
+              position: 'top',
+              labels: { color: 'rgba(255,255,255,0.85)' },
+            },
           },
           scales: {
             y: {
               min: 0,
               max: 1,
+              title: {
+                display: true,
+                text: 'Score (0–1)',
+                color: 'rgba(255,255,255,0.75)',
+              },
               ticks: { color: 'rgba(255,255,255,0.65)' },
               grid: { color: 'rgba(255,255,255,0.06)' }
             },
@@ -300,45 +224,6 @@
       fourMetricsChart = new Chart(ctx, config);
     }
 
-    async function loadPie() {
-      const hint = document.getElementById('pieHint');
-      hint.textContent = 'Loading…';
-      const data = await fetchJson('/api/drift-pie');
-      hint.textContent = data.values?.length ? `Slices: ${data.values.length}` : 'No data';
-
-      const ctx = document.getElementById('driftPieChart');
-      const palette = [
-        'rgba(124, 58, 237, 0.85)',
-        'rgba(59, 130, 246, 0.85)',
-        'rgba(34, 197, 94, 0.85)',
-        'rgba(245, 158, 11, 0.85)',
-        'rgba(239, 68, 68, 0.85)',
-        'rgba(148, 163, 184, 0.85)',
-      ];
-      const config = {
-        type: 'pie',
-        data: {
-          labels: data.labels,
-          datasets: [{
-            data: data.values,
-            backgroundColor: data.values.map((_, i) => palette[i % palette.length]),
-            borderColor: 'rgba(255,255,255,0.18)',
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.85)' } }
-          }
-        }
-      };
-
-      if (pieChart) pieChart.destroy();
-      pieChart = new Chart(ctx, config);
-    }
-
     async function refreshAll() {
       clearStatus();
       try {
@@ -346,9 +231,7 @@
         if (!health.db_exists) {
           showStatus(`<strong>Database missing.</strong> Run the experiment first to create results.`);
         }
-        await loadPie();
         await loadFourMetricComparison();
-        await loadAverages();
       } catch (err) {
         showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
       }
