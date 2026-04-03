@@ -68,6 +68,7 @@ python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 @"
 ANTHROPIC_API_KEY=your_real_key_here
+ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 "@ | Out-File -FilePath ".env" -Encoding utf8
 ```
 

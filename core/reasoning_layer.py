@@ -1,4 +1,4 @@
-"""Claude reasoning layer — contract rules only in Condition B."""
+"""Claude reasoning layer (Anthropic API) — contract rules only in Condition B."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-import httpx
+from anthropic import Anthropic
 
 from core.contract_loader import RMICContract
 
@@ -27,27 +27,15 @@ class PlannedToolCall:
 
 
 def _model_name() -> str:
-    # OpenRouter uses OpenAI-compatible "model" strings, e.g.:
-    #   anthropic/claude-3.5-sonnet
-    #   openai/gpt-4o-mini
-    # openrouter/auto routes to an available model for your account and avoids
-    # hard-failing when a specific model is unavailable.
-    return os.environ.get("OPENROUTER_MODEL", os.environ.get("ANTHROPIC_MODEL", "openrouter/auto"))
-
-
-def _openrouter_base_url() -> str:
-    return os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    # Direct Anthropic model names.
+    return os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
 
 
 def _api_key() -> str:
-    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    if key:
-        return key
-    # Back-compat: allow Anthropic key env var name if user used it
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if key:
         return key
-    raise ValueError("OPENROUTER_API_KEY is not set")
+    raise ValueError("ANTHROPIC_API_KEY is not set")
 
 
 def _system_prompt(contract: RMICContract | None, condition: Condition) -> str:
@@ -137,10 +125,11 @@ def parse_planned_json(text: str) -> PlannedToolCall:
 
 
 class ReasoningLayer:
-    """OpenRouter (OpenAI-compatible) wrapper with experiment conditions A/B/C."""
+    """Anthropic Claude wrapper with experiment conditions A/B/C."""
 
     def __init__(self, api_key: str | None = None) -> None:
         self._api_key = (api_key or _api_key()).strip()
+        self._client = Anthropic(api_key=self._api_key)
 
     def plan_tool_call(
         self,
@@ -154,54 +143,22 @@ class ReasoningLayer:
         if extra_system:
             system = f"{system}\n\n{extra_system}"
 
-        payload = {
-            "model": _model_name(),
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"{user_message}\n\n{_user_instructions_for_plan()}"},
+        response = self._client.messages.create(
+            model=_model_name(),
+            system=system,
+            max_tokens=1024,
+            temperature=0.2,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"{user_message}\n\n{_user_instructions_for_plan()}",
+                }
             ],
-            "max_tokens": 1024,
-            "temperature": 0.2,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-
-        # Optional but recommended by OpenRouter for usage attribution.
-        # Safe to leave unset.
-        ref = os.environ.get("OPENROUTER_HTTP_REFERER")
-        title = os.environ.get("OPENROUTER_APP_TITLE")
-        if ref:
-            headers["HTTP-Referer"] = ref
-        if title:
-            headers["X-Title"] = title
-
-        url = f"{_openrouter_base_url().rstrip('/')}/chat/completions"
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            if resp.status_code >= 400:
-                # Surface OpenRouter error payload for easier debugging.
-                raise RuntimeError(
-                    f"OpenRouter {resp.status_code} error: {resp.text}"
-                )
-            data = resp.json()
-
-        # OpenAI-compatible response:
-        # { choices: [ { message: { content: "..." } } ] }
-        content = (
-            (data.get("choices") or [{}])[0]
-            .get("message", {})
-            .get("content", "")
         )
-        # Some providers return content as structured parts (list of dicts).
-        if isinstance(content, list):
-            parts: list[str] = []
-            for p in content:
-                if isinstance(p, dict):
-                    parts.append(str(p.get("text", "")))
-                else:
-                    parts.append(str(p))
-            content = "\n".join(parts).strip()
+        parts: list[str] = []
+        for block in response.content:
+            text = getattr(block, "text", None)
+            if text:
+                parts.append(str(text))
+        content = "\n".join(parts).strip()
         return parse_planned_json(str(content))

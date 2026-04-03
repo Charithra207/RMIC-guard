@@ -70,17 +70,14 @@ def main() -> None:
     # 2 — .env and API key shape (no network)
     env_path = ROOT / ".env"
     if not env_path.is_file():
-        err_line(".env and OPENROUTER_API_KEY/ANTHROPIC_API_KEY", f"missing {env_path}")
+        err_line(".env and ANTHROPIC_API_KEY", f"missing {env_path}")
     else:
-        or_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
         an_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-        if or_key.startswith("sk-or-"):
-            ok_line(".env exists and OPENROUTER_API_KEY starts with sk-or-")
-        elif an_key.startswith("sk-ant-"):
+        if an_key.startswith("sk-ant-"):
             ok_line(".env exists and ANTHROPIC_API_KEY starts with sk-ant-")
         else:
             err_line(
-                ".env exists and OPENROUTER_API_KEY starts with sk-or- (or ANTHROPIC_API_KEY starts with sk-ant-)",
+                ".env exists and ANTHROPIC_API_KEY starts with sk-ant-",
                 "key missing, empty, or wrong prefix",
             )
 
