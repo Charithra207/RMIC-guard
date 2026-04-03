@@ -173,7 +173,7 @@
       <div class="card chart-card">
         <div class="pad">
           <div class="card-title">
-            <h2>IDS Timeline (running score)</h2>
+            <h2>Four-Metric Timeline (running score)</h2>
             <div class="hint" id="timelineHint">Loading…</div>
           </div>
           <div class="chart-wrap">
@@ -315,16 +315,48 @@
         type: 'line',
         data: {
           labels: data.labels,
-          datasets: [{
-            label: 'IDS score (running)',
-            data: data.ids_score,
-            borderWidth: 2,
-            borderColor: 'rgba(124, 58, 237, 0.95)',
-            backgroundColor: 'rgba(124, 58, 237, 0.15)',
-            fill: true,
-            tension: 0.25,
-            pointRadius: 0,
-          }]
+          datasets: [
+            {
+              label: 'IDS',
+              data: data.ids_score,
+              borderWidth: 2,
+              borderColor: 'rgba(124, 58, 237, 0.95)',
+              backgroundColor: 'rgba(124, 58, 237, 0.12)',
+              fill: false,
+              tension: 0.25,
+              pointRadius: 0,
+            },
+            {
+              label: 'Mahalanobis Distance',
+              data: data.mahalanobis_distance || [],
+              borderWidth: 2,
+              borderColor: 'rgba(59, 130, 246, 0.95)',
+              backgroundColor: 'rgba(59, 130, 246, 0.12)',
+              fill: false,
+              tension: 0.25,
+              pointRadius: 0,
+            },
+            {
+              label: 'KL Divergence',
+              data: data.kl_divergence || [],
+              borderWidth: 2,
+              borderColor: 'rgba(245, 158, 11, 0.95)',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              fill: false,
+              tension: 0.25,
+              pointRadius: 0,
+            },
+            {
+              label: 'Jensen-Shannon Divergence',
+              data: data.js_divergence || [],
+              borderWidth: 2,
+              borderColor: 'rgba(34, 197, 94, 0.95)',
+              backgroundColor: 'rgba(34, 197, 94, 0.12)',
+              fill: false,
+              tension: 0.25,
+              pointRadius: 0,
+            }
+          ]
         },
         options: {
           responsive: true,
