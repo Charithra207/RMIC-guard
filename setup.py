@@ -31,6 +31,7 @@ CONTRACT_FILES = (
     "financial_agent.json",
     "support_agent.json",
     "healthcare_research_agent.json",
+    "legal_review_agent.json",
 )
 
 
@@ -111,26 +112,32 @@ def main() -> None:
         elif not isinstance(ch, str):
             contract_errors.append(f"{name} (contract_hash must be a string)")
     if not contract_errors:
-        ok_line("All 3 contract files are sealed (contract_hash set)")
+        ok_line("All 4 contract files are sealed (contract_hash set)")
     else:
         warn_line(
             "Contracts are not sealed (contract_hash set)",
             "Runner can still execute with verify_hash=False; seal later on a compatible Python (3.11 recommended)",
         )
 
-    # 5 — local embedding model (sentence-transformers)
+    # 5 — local embedding model (fastembed ONNX preferred, sentence-transformers fallback)
     sys.path.insert(0, str(ROOT))
     try:
         from core.embedder import embed_texts
 
         vec = embed_texts(["RMIC-Guard validation sentence."])
         shape = tuple(vec.shape)
-        if shape == (1, 384):
-            ok_line("Embedding model loads and returns shape (1, 384)")
+        try:
+            import fastembed  # noqa: F401
+
+            backend = "fastembed (ONNX)"
+        except ImportError:
+            backend = "sentence-transformers (PyTorch)"
+        if shape[0] == 1 and shape[1] > 0:
+            ok_line(f"Embedding model loads via {backend}, shape {shape}")
         else:
-            warn_line("Embedding model loads and returns shape (1, 384)", f"got shape {shape}")
+            warn_line("Embedding model shape unexpected", f"got {shape}")
     except Exception as exc:  # noqa: BLE001 — surface any import/runtime failure
-        warn_line("Embedding model loads and returns shape (1, 384)", str(exc))
+        warn_line("Embedding model loads", str(exc))
 
     # 6 — results/
     results_dir = ROOT / "results"

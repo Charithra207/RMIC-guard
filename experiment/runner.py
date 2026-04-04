@@ -52,6 +52,7 @@ ROLES = [
     "financial_agent",
     "support_agent",
     "healthcare_research_agent",
+    "legal_review_agent",
 ]
 
 # CRITICAL: these exact names must match what results_store and dashboard expect

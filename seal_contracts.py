@@ -11,6 +11,7 @@ CONTRACT_RELPATHS = (
     "contracts/financial_agent.json",
     "contracts/support_agent.json",
     "contracts/healthcare_research_agent.json",
+    "contracts/legal_review_agent.json",
 )
 
 
@@ -19,6 +20,15 @@ def compute_contract_hash(data: dict) -> str:
     payload = {k: v for k, v in sorted(data.items()) if k != "contract_hash"}
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
+
+
+def _embedding_backend_label() -> str:
+    try:
+        import fastembed  # noqa: F401
+
+        return "fastembed"
+    except ImportError:
+        return "sentence-transformers"
 
 
 def _seal_fallback(path: Path) -> None:
@@ -47,12 +57,16 @@ def main() -> None:
         from core.contract_loader import seal_contract_file
 
         for p in paths:
-            seal_contract_file(p)
-    except (ImportError, OSError, Exception):
+            sealed = seal_contract_file(p)
+            agent_id = sealed.agent_id
+            h = sealed.contract_hash
+            be = _embedding_backend_label()
+            print(f"Sealed (real embeddings via {be}): {agent_id}: {h[:16]}...")
+    except (ImportError, OSError):
         for p in paths:
             _seal_fallback(p)
 
-    print("All 3 contracts sealed. Now run: python setup.py")
+    print("All 4 contracts sealed. Now run: python setup.py")
 
 
 if __name__ == "__main__":
