@@ -14,6 +14,7 @@ RMIC-guard/
 │   ├── _template_universal.json
 │   ├── financial_agent.json
 │   ├── healthcare_research_agent.json
+│   ├── legal_review_agent.json
 │   └── support_agent.json
 ├── core/
 │   ├── audit_ledger.py
@@ -88,7 +89,7 @@ python -m experiment.metrics
 ```
 
 Expected:
-- runner prints `run_id` and `rows_inserted=27`
+- runner prints `run_id` and `rows_inserted=60` in `--test` (4 roles × 5 conditions × 3 prompts); full run inserts **1200** rows (4 × 5 × 60)
 - metrics prints `DDR`, `DSR`, `FPR`, `IDS`
 
 ## Run Dashboard
@@ -105,7 +106,7 @@ APIs:
 - `GET /api/health`
 - `GET /api/overview`
 - `GET /api/ids-timeline`
-- `GET /api/ids-components-timeline` — mixed IDS + Mahalanobis / KL / JS (Condition C rows)
+- `GET /api/ids-components-timeline` — base IDS + Mahalanobis / KL / JS (Condition C rows, independent metrics)
 - `GET /api/ids-components-averages` — aggregate means for those components
 - `GET /api/drift-pie`
 - `GET /api/stats`
