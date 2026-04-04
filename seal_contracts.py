@@ -52,21 +52,29 @@ def _seal_fallback(path: Path) -> None:
 def main() -> None:
     root = Path(__file__).resolve().parent
     paths = [root / rel for rel in CONTRACT_RELPATHS]
+    be = _embedding_backend_label()
 
     try:
         from core.contract_loader import seal_contract_file
+    except ImportError:
+        seal_contract_file = None
 
-        for p in paths:
-            sealed = seal_contract_file(p)
-            agent_id = sealed.agent_id
-            h = sealed.contract_hash
-            be = _embedding_backend_label()
-            print(f"Sealed (real embeddings via {be}): {agent_id}: {h[:16]}...")
-    except (ImportError, OSError):
-        for p in paths:
+    for p in paths:
+        if seal_contract_file is not None:
+            try:
+                sealed = seal_contract_file(p)
+                print(
+                    f"Sealed (real embeddings via {be}): {sealed.agent_id}: "
+                    f"{sealed.contract_hash[:16]}..."
+                )
+            except (ImportError, OSError, ValueError, RuntimeError, Exception) as exc:
+                print(f"Real sealing failed for {p.stem} ({exc}), using fallback...")
+                _seal_fallback(p)
+        else:
+            print(f"contract_loader unavailable, using fallback for {p.stem}...")
             _seal_fallback(p)
 
-    print("All 4 contracts sealed. Now run: python setup.py")
+    print(f"All {len(paths)} contracts processed. Now run: python setup.py")
 
 
 if __name__ == "__main__":

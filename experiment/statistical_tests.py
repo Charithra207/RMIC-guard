@@ -17,9 +17,20 @@ COND_LABELS = {
     "A_no_contract": "A",
     "B_prompt_contract": "B",
     "C_rmic_middleware": "C",
+    "C1_hard_rules_only": "C1",
+    "C2_ids_only": "C2",
 }
 
-CONDITION_ORDER = ("A_no_contract", "B_prompt_contract", "C_rmic_middleware")
+CONDITION_ORDER = (
+    "A_no_contract",
+    "B_prompt_contract",
+    "C_rmic_middleware",
+    "C1_hard_rules_only",
+    "C2_ids_only",
+)
+
+# Mann–Whitney / Cohen's d: compare real embedding IDS (C) to proxy scores (A, B) only.
+MWU_CONDITION_ORDER = ("A_no_contract", "B_prompt_contract", "C_rmic_middleware")
 
 ROLES_ORDER = (
     "financial_agent",
@@ -143,7 +154,7 @@ def build_report(conn, run_id: str) -> str:
     except ValueError:
         pass
 
-    ids_by_cond: dict[str, list[float]] = {c: [] for c in CONDITION_ORDER}
+    ids_by_cond: dict[str, list[float]] = {c: [] for c in MWU_CONDITION_ORDER}
     for r in rows:
         c = r["condition"]
         if c not in ids_by_cond:
@@ -200,6 +211,14 @@ def build_report(conn, run_id: str) -> str:
             f"{float(m['ddr']):.2f} {fmt_ci(ddr_ci):16} | {float(m['fpr']):.2f} {fmt_ci(fpr_ci)}"
         )
     lines.append("")
+    lines.append("Note: IDS scores for Conditions A and B are binary-outcome proxy values.")
+    lines.append("Condition C IDS scores are real embedding-based measurements.")
+    lines.append(
+        "Mann-Whitney tests compare real (C) vs proxy (A, B) distributions — interpret as "
+        "testing whether the enforcement engine produces systematically higher drift signals "
+        "than the no-enforcement and self-policing baselines."
+    )
+    lines.append("")
     if not math.isnan(chi2_p):
         line = f"Chi-square (condition vs blocked): χ²={chi2_stat:.2f}, p={chi2_p:.4f}"
         line += " ✓" if chi_sig else ""
@@ -211,15 +230,21 @@ def build_report(conn, run_id: str) -> str:
 
     if mw_ca is not None:
         sig = " ✓" if mw_ca.pvalue < 0.05 else ""
-        lines.append(f"Mann-Whitney C>A (IDS): U={mw_ca.statistic:.1f}, p={mw_ca.pvalue:.4f}{sig}")
+        lines.append(
+            f"Mann-Whitney C>A (IDS: real vs proxy): U={mw_ca.statistic:.1f}, "
+            f"p={mw_ca.pvalue:.4f}{sig}"
+        )
     else:
-        lines.append("Mann-Whitney C>A (IDS): insufficient data.")
+        lines.append("Mann-Whitney C>A (IDS: real vs proxy): insufficient data.")
 
     if mw_cb is not None:
         sig = " ✓" if mw_cb.pvalue < 0.05 else ""
-        lines.append(f"Mann-Whitney C>B (IDS): U={mw_cb.statistic:.1f}, p={mw_cb.pvalue:.4f}{sig}")
+        lines.append(
+            f"Mann-Whitney C>B (IDS: real vs proxy): U={mw_cb.statistic:.1f}, "
+            f"p={mw_cb.pvalue:.4f}{sig}"
+        )
     else:
-        lines.append("Mann-Whitney C>B (IDS): insufficient data.")
+        lines.append("Mann-Whitney C>B (IDS: real vs proxy): insufficient data.")
 
     lines.append(f"Cohen's d (C vs A): d={d_c_a:.2f} ({interpret_cohen_d(d_c_a)})")
     lines.append(f"Cohen's d (C vs B): d={d_c_b:.2f} ({interpret_cohen_d(d_c_b)})")
@@ -228,6 +253,16 @@ def build_report(conn, run_id: str) -> str:
     rpad = max(len(r) for r in ROLES_ORDER)
     for role in ROLES_ORDER:
         lines.append(f"  {role:{rpad}}: DSR={role_dsr_c[role]:.2f}")
+    lines.append("")
+    dsr_c = float(metrics_by_cond["C_rmic_middleware"]["dsr"])
+    dsr_c1 = float(metrics_by_cond["C1_hard_rules_only"]["dsr"])
+    dsr_c2 = float(metrics_by_cond["C2_ids_only"]["dsr"])
+    lines.append("Ablation Analysis (C vs C1 vs C2):")
+    lines.append(f"  C_rmic_middleware  (full):           DSR={dsr_c:.2f}")
+    lines.append(f"  C1_hard_rules_only (no IDS):         DSR={dsr_c1:.2f}")
+    lines.append(f"  C2_ids_only        (no hard rules):  DSR={dsr_c2:.2f}")
+    lines.append(f"  IDS contribution:   DSR(C) - DSR(C1) = {dsr_c - dsr_c1:+.2f}")
+    lines.append(f"  Hard rule contribution: DSR(C) - DSR(C2) = {dsr_c - dsr_c2:+.2f}")
     lines.append("═" * 51)
     lines.append("")
     lines.append(f"run_id={run_id}")

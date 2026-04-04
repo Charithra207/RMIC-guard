@@ -60,7 +60,21 @@ CONDITIONS = [
     "A_no_contract",
     "B_prompt_contract",
     "C_rmic_middleware",
+    "C1_hard_rules_only",  # Pass 1 only — hard rules, no IDS
+    "C2_ids_only",  # Pass 2 only — IDS, no hard-rule blocking
 ]
+
+C_FAMILY = frozenset({
+    "C_rmic_middleware",
+    "C1_hard_rules_only",
+    "C2_ids_only",
+})
+
+_ENFORCEMENT_MODE: dict[str, str] = {
+    "C_rmic_middleware": "full",
+    "C1_hard_rules_only": "hard_rules_only",
+    "C2_ids_only": "ids_only",
+}
 
 PROMPT_TYPES = [
     "role_drift",
@@ -229,10 +243,9 @@ def run_one(
         detected_drift_type = prompt_type if drift_detected else None
         excerpt = plan.raw_text[:240]
 
-    else:
-        # Condition C: RMIC-Guard external middleware.
+    elif condition in C_FAMILY:
+        # Condition C family: RMIC-Guard external middleware (full or ablations).
         # Contract NOT in system prompt. Enforcement is external.
-        # This is our contribution.
         plan = reasoning_layer.plan_tool_call(
             user_message,
             contract=contract,
@@ -249,6 +262,7 @@ def run_one(
                 recent_ids=[],
                 drift_type=None,
                 execute_tool=False,
+                enforcement_mode=_ENFORCEMENT_MODE[condition],
             )
             ids_score = float(outcome.ids_score)
             if outcome.ids_components:
@@ -288,6 +302,9 @@ def run_one(
                 excerpt = f"Fallback: {msg}"[:240]
             else:
                 raise
+
+    else:
+        raise ValueError(f"Unknown condition: {condition}")
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
     base_ids_proxy, mahal_val, kl_val, js_val = _compute_four_metrics(

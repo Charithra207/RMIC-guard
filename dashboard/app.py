@@ -188,9 +188,11 @@ def stats() -> dict[str, Any]:
         ).fetchall()
 
         out: dict[str, dict[str, float]] = {
-            "A_no_contract":    {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+            "A_no_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
             "B_prompt_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
             "C_rmic_middleware": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+            "C1_hard_rules_only": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+            "C2_ids_only": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
         }
 
         for row in rows:
@@ -216,8 +218,8 @@ def stats() -> dict[str, Any]:
 @app.get("/api/ids-components-timeline")
 def ids_components_timeline() -> dict[str, Any]:
     """
-    Per-row base IDS + statistical components (Condition C only, where computed).
-    Used for multi-series charts (base IDS, Mahalanobis, KL, JS).
+    Per-row base IDS + Mahalanobis / KL / JS (Condition C rows where computed;
+    independent metrics from the runner, not a single mixed IDS score).
     """
     conn = get_conn()
     try:
@@ -305,6 +307,8 @@ def four_metrics_by_condition() -> dict[str, Any]:
             "A_no_contract": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
             "B_prompt_contract": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
             "C_rmic_middleware": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "C1_hard_rules_only": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
+            "C2_ids_only": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
         }
         for r in rows:
             key = str(r["condition"])

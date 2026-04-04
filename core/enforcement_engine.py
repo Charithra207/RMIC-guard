@@ -18,9 +18,11 @@ from core.recovery_engine import reanchoring_system_message, reanchoring_user_nu
 from core.reasoning_layer import PlannedToolCall
 from core.tool_layer import ToolRegistry, ToolResult
 
-__all__ = ["EnforcementEngine", "EnforcementOutcome"]
+__all__ = ["EnforcementEngine", "EnforcementMode", "EnforcementOutcome"]
 
 Decision = Literal["PASS", "BLOCK", "WARN", "NEEDS_RECOVERY", "PREEMPTIVE_WARN"]
+
+EnforcementMode = Literal["full", "hard_rules_only", "ids_only"]
 
 
 @dataclass(frozen=True)
@@ -139,13 +141,22 @@ class EnforcementEngine:
         recent_ids: list[float],
         drift_type: str | None = None,
         execute_tool: bool = True,
+        enforcement_mode: EnforcementMode = "full",
     ) -> EnforcementOutcome:
         """
         Run dual enforcement. Executes the tool only when decision is PASS and execute_tool is True.
         Below warn threshold: append audit with sync=False when log_async is set (caller may flush).
+
+        enforcement_mode:
+          full — hard rules then IDS (default).
+          hard_rules_only — Pass 1 only; if hard rules pass, PASS with ids_score=0 (no IDS).
+          ids_only — Pass 2 only; skip hard rules, block only on IDS thresholds.
         """
         c = self.contract
-        hard = _check_hard_rules(c, plan)
+        if enforcement_mode == "ids_only":
+            hard = None
+        else:
+            hard = _check_hard_rules(c, plan)
         if hard:
             self._log(
                 AuditEntry(
@@ -170,6 +181,36 @@ class EnforcementEngine:
                 recovery_system_message=None,
                 recovery_user_message=None,
                 tool_result=None,
+            )
+
+        if enforcement_mode == "hard_rules_only":
+            pass_sync = self.log_async is None
+            self._log(
+                AuditEntry(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    agent_id=c.agent_id,
+                    input_hash=hash_text(plan.raw_text),
+                    ids_score=0.0,
+                    drift_type=drift_type,
+                    drift_velocity=None,
+                    decision="PASS",
+                    contract_hash=c.contract_hash,
+                    recovery_attempted=False,
+                ),
+                sync=pass_sync,
+            )
+            tool_result: ToolResult | None = None
+            if execute_tool:
+                tool_result = self.tools.execute(plan.tool_name, **plan.arguments)
+            return EnforcementOutcome(
+                decision="PASS",
+                ids_score=0.0,
+                drift_velocity=0.0,
+                ids_components=None,
+                hard_rule_violation=None,
+                recovery_system_message=None,
+                recovery_user_message=None,
+                tool_result=tool_result,
             )
 
         ids_score, ids_components = _ids_on_plan(c, plan, recent_ids)
