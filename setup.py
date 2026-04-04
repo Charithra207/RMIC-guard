@@ -34,6 +34,15 @@ CONTRACT_FILES = (
     "legal_review_agent.json",
 )
 
+# Retired on api.anthropic.com (404) — keep in sync with core/reasoning_layer.py
+_RETIRED_ANTHROPIC_MODELS: frozenset[str] = frozenset(
+    {
+        "claude-3-sonnet-20240229",
+        "claude-3-opus-20240229",
+    }
+)
+_DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+
 
 def main() -> None:
     load_dotenv(ROOT / ".env")
@@ -81,6 +90,13 @@ def main() -> None:
                 ".env exists and ANTHROPIC_API_KEY starts with sk-ant-",
                 "key missing, empty, or wrong prefix",
             )
+
+    model_env = (os.environ.get("ANTHROPIC_MODEL") or "").strip()
+    if model_env in _RETIRED_ANTHROPIC_MODELS:
+        warn_line(
+            "ANTHROPIC_MODEL is retired (Anthropic API returns 404)",
+            f"{model_env} — remove it or set ANTHROPIC_MODEL={_DEFAULT_MODEL}",
+        )
 
     # 3 — core modules
     core_dir = ROOT / "core"

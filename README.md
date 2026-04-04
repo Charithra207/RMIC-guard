@@ -50,7 +50,14 @@ RMIC-guard/
 
 - Python 3.10+ (recommended: 3.11 on Windows)
 - Git
-- Anthropic API key
+- **Anthropic** API key (`sk-ant-...`) with credits — this repo calls **api.anthropic.com** directly (OpenRouter is not used)
+
+### Model name (`ANTHROPIC_MODEL`)
+
+Use a **current** model ID. Retired IDs such as `claude-3-sonnet-20240229` return **404** (`not_found_error`) from Anthropic.
+
+- **Default** (if you omit `ANTHROPIC_MODEL`): `claude-3-5-sonnet-20241022`
+- Alternatives: `claude-3-5-sonnet-latest`, `claude-3-5-haiku-20241022`, etc., per [Anthropic model docs](https://docs.anthropic.com/en/docs/about-claude/models).
 
 ## Setup
 
@@ -69,7 +76,7 @@ python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 @"
 ANTHROPIC_API_KEY=your_real_key_here
-ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 "@ | Out-File -FilePath ".env" -Encoding utf8
 ```
 
