@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from anthropic import APIConnectionError, APIStatusError, AuthenticationError
 from dotenv import load_dotenv
 
 from core.audit_ledger import AuditLedger
@@ -24,6 +25,18 @@ ROOT = Path(__file__).resolve().parent
 def _dummy_tool(**kwargs: object) -> dict[str, object]:
     """Stub executor — no real side effects."""
     return {"ok": True, "received": kwargs}
+
+
+def _is_insufficient_credits_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if "credit balance" in msg or "too low" in msg and "api" in msg:
+        return True
+    if isinstance(exc, APIStatusError) and exc.body is not None and isinstance(exc.body, dict):
+        err = exc.body.get("error")
+        if isinstance(err, dict):
+            inner = str(err.get("message", "")).lower()
+            return "credit" in inner and "balance" in inner
+    return False
 
 
 def _outcome_label(outcome: EnforcementOutcome) -> str:
@@ -111,3 +124,21 @@ if __name__ == "__main__":
             print("Error: set ANTHROPIC_API_KEY in .env or the environment.", file=sys.stderr)
             sys.exit(1)
         raise
+    except APIStatusError as e:
+        if _is_insufficient_credits_error(e):
+            print(
+                "\nAnthropic API: your account has no usable credits (balance too low).\n"
+                "This is not an RMIC-Guard code error — the API refused the request.\n"
+                "Fix: https://console.anthropic.com/ → Plans & Billing → add credits or upgrade.\n",
+                file=sys.stderr,
+            )
+        else:
+            print(f"\nAnthropic API error (HTTP {e.status_code}): {e.message}", file=sys.stderr)
+        sys.exit(1)
+    except AuthenticationError as e:
+        print(f"\nAnthropic authentication failed: {e.message}", file=sys.stderr)
+        print("Check ANTHROPIC_API_KEY in .env or the environment.", file=sys.stderr)
+        sys.exit(1)
+    except APIConnectionError as e:
+        print(f"\nCould not reach Anthropic API (network): {e}", file=sys.stderr)
+        sys.exit(1)
