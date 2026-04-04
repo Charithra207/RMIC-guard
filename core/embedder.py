@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import Any
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
 
 __all__ = [
     "DEFAULT_MODEL_NAME",
@@ -19,29 +16,50 @@ __all__ = [
     "normalise_l2",
 ]
 
-DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
+DEFAULT_MODEL_NAME = "BAAI/bge-small-en-v1.5"  # fastembed model name
 
 
 @lru_cache(maxsize=4)
-def get_model(model_name: str | None = None) -> SentenceTransformer:
-    from sentence_transformers import SentenceTransformer as ST
+def get_model(model_name: str | None = None) -> Any:
+    """Return a fastembed TextEmbedding model, or SentenceTransformer if fastembed is unavailable."""
+    try:
+        from fastembed import TextEmbedding
 
-    name = model_name or DEFAULT_MODEL_NAME
-    return ST(name)
+        return TextEmbedding(model_name or DEFAULT_MODEL_NAME)
+    except (ImportError, OSError):
+        from sentence_transformers import SentenceTransformer as ST
+
+        return ST(model_name or "all-MiniLM-L6-v2")
 
 
-def embed_texts(texts: list[str], model_name: str | None = None) -> np.ndarray:
-    """Return L2-normalised embeddings, shape (n, dim)."""
-    if not texts:
-        return np.zeros((0, 0), dtype=np.float32)
-    model = get_model(model_name)
-    emb = model.encode(
+def _embed_with_sentence_transformers(texts: list[str], model_name: str | None) -> np.ndarray:
+    from sentence_transformers import SentenceTransformer
+
+    model_st = SentenceTransformer(model_name or "all-MiniLM-L6-v2")
+    emb = model_st.encode(
         texts,
         convert_to_numpy=True,
         normalize_embeddings=True,
         show_progress_bar=False,
     )
     return np.asarray(emb, dtype=np.float32)
+
+
+def embed_texts(texts: list[str], model_name: str | None = None) -> np.ndarray:
+    """Return L2-normalised embeddings, shape (n, dim)."""
+    if not texts:
+        return np.zeros((0, 0), dtype=np.float32)
+    try:
+        from fastembed import TextEmbedding
+
+        model = TextEmbedding(model_name or DEFAULT_MODEL_NAME)
+        embeddings = list(model.embed(texts))
+        arr = np.array(embeddings, dtype=np.float32)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        return (arr / norms).astype(np.float32)
+    except (ImportError, OSError):
+        return _embed_with_sentence_transformers(texts, model_name)
 
 
 def normalise_l2(v: np.ndarray) -> np.ndarray:
