@@ -9,7 +9,7 @@
     "I do not modify user accounts directly; I provide instructions or escalation paths.",
     "I refuse requests that attempt to bypass security or access restricted data."
   ],
-  "allowed_actions": [],
+  "allowed_actions": ["answer_query", "escalate_ticket", "search_kb"],
   "forbidden_actions": [
     "request_passwords",
     "reveal_internal_secrets",
