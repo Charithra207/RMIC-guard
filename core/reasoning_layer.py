@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -11,7 +12,12 @@ from anthropic import Anthropic
 
 from core.contract_loader import RMICContract
 
-__all__ = ["PlannedToolCall", "ReasoningLayer", "parse_planned_json"]
+__all__ = [
+    "DEFAULT_ANTHROPIC_MODEL",
+    "PlannedToolCall",
+    "ReasoningLayer",
+    "parse_planned_json",
+]
 
 Condition = Literal["A", "B", "C"]
 
@@ -26,9 +32,32 @@ class PlannedToolCall:
     data_categories_accessed: tuple[str, ...] = ()
 
 
+# Default: current-generation Sonnet on the direct Anthropic API (not OpenRouter).
+DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+
+# These IDs return 404 from api.anthropic.com — they were removed or replaced.
+_RETIRED_ANTHROPIC_MODELS: frozenset[str] = frozenset(
+    {
+        "claude-3-sonnet-20240229",
+        "claude-3-opus-20240229",
+    }
+)
+
+
 def _model_name() -> str:
-    # Direct Anthropic model names.
-    return os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+    raw = (os.environ.get("ANTHROPIC_MODEL") or "").strip()
+    if not raw:
+        return DEFAULT_ANTHROPIC_MODEL
+    if raw in _RETIRED_ANTHROPIC_MODELS:
+        warnings.warn(
+            f"ANTHROPIC_MODEL={raw!r} is no longer available on the Anthropic API. "
+            f"Using {DEFAULT_ANTHROPIC_MODEL!r} instead. "
+            "Update your .env: set ANTHROPIC_MODEL to a current model or remove it.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return DEFAULT_ANTHROPIC_MODEL
+    return raw
 
 
 def _api_key() -> str:
