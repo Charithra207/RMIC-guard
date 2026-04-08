@@ -107,13 +107,13 @@
 
     <div class="header">
       <h1>Company Dashboard</h1>
-      <div class="subtitle">Independent drift metrics across A/B/C conditions.</div>
+      <div class="subtitle">Independent drift metrics across all 5 conditions (A/B/C/C1/C2).</div>
     </div>
 
     <div class="card">
       <div class="pad">
         <div class="card-title">
-          <h2>Four Independent IDS Metrics — Condition Comparison</h2>
+          <h2>Four Independent IDS Metrics — All 5 conditions (A/B/C/C1/C2)</h2>
           <div class="hint" id="metricsHint">Loading…</div>
         </div>
         <div class="chart-wrap">
@@ -153,8 +153,8 @@
       const hint = document.getElementById('metricsHint');
       hint.textContent = 'Loading…';
       const data = await fetchJson('/api/four-metrics-by-condition');
-      const labels = ['A_no_contract', 'B_prompt_contract', 'C_rmic_middleware'];
-      hint.textContent = 'A/B/C conditions';
+      const labels = ['A_no_contract', 'B_prompt_contract', 'C_rmic_middleware', 'C1_hard_rules_only', 'C2_ids_only'];
+      hint.textContent = 'All 5 conditions';
 
       const ctx = document.getElementById('fourMetricsComparisonChart');
       const config = {
