@@ -114,6 +114,21 @@
       background: rgba(0,0,0,0.12);
     }
     .notice strong{ color: var(--text); }
+    .summary-card table{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 13px;
+    }
+    .summary-card th, .summary-card td{
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      padding: 8px 6px;
+      text-align: left;
+    }
+    .summary-card th{
+      color: var(--muted);
+      font-weight: 600;
+    }
 
     @media (max-width: 900px){
       .kpi-row{ grid-template-columns: repeat(2, minmax(140px, 1fr)); }
@@ -131,8 +146,7 @@
     <div class="topbar">
       <div class="brand"><span class="dot"></span> RMIC Guard</div>
       <div class="nav">
-        <span class="pill"><strong>View</strong>: Developer</span>
-        <a class="btn" href="/company">Company view</a>
+        <span class="pill"><strong>RMIC Guard Dashboard</strong></span>
         <button class="btn" id="refreshBtn" type="button">Refresh</button>
       </div>
     </div>
@@ -193,6 +207,27 @@
             <canvas id="idsComponentsChart"></canvas>
           </div>
           <div class="notice" id="componentsNotice" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div class="card chart-card summary-card">
+        <div class="pad">
+          <div class="card-title">
+            <h2>Results Summary</h2>
+            <div class="hint">Condition-level DSR / DDR / FPR from <code>/api/stats</code></div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Condition</th>
+                <th>DSR</th>
+                <th>DDR</th>
+                <th>FPR</th>
+                <th>95% CI (DSR)</th>
+              </tr>
+            </thead>
+            <tbody id="resultsSummaryBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -282,6 +317,9 @@
             ds('Mahalanobis', data.mahalanobis, 'rgba(59, 130, 246, 0.95)', []),
             ds('KL divergence', data.kl_divergence, 'rgba(34, 197, 94, 0.95)', []),
             ds('Jensen–Shannon', data.js_divergence, 'rgba(245, 158, 11, 0.95)', []),
+            ds('Wasserstein', data.wasserstein, 'rgba(239, 68, 68, 0.95)', []),
+            ds('Hellinger', data.hellinger, 'rgba(249, 115, 22, 0.95)', []),
+            ds('Tool Frequency', data.tool_frequency, 'rgba(168, 85, 247, 0.95)', []),
           ],
         },
         options: {
@@ -301,6 +339,32 @@
 
       if (componentsChart) componentsChart.destroy();
       componentsChart = new Chart(ctx, config);
+    }
+
+    async function loadResultsSummaryTable() {
+      const data = await fetchJson('/api/stats');
+      const order = [
+        ['A_no_contract', 'A'],
+        ['B_prompt_contract', 'B'],
+        ['C_rmic_middleware', 'C'],
+        ['C1_hard_rules_only', 'C1'],
+        ['C2_ids_only', 'C2'],
+      ];
+      const tbody = document.getElementById('resultsSummaryBody');
+      tbody.innerHTML = '';
+      for (const [key, label] of order) {
+        const row = data[key] || {};
+        const ci = row.dsr_ci || [0, 0];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${label}</td>
+          <td>${Number(row.dsr || 0).toFixed(2)}</td>
+          <td>${Number(row.ddr || 0).toFixed(2)}</td>
+          <td>${Number(row.fpr || 0).toFixed(2)}</td>
+          <td>[${Number(ci[0] || 0).toFixed(2)}, ${Number(ci[1] || 0).toFixed(2)}]</td>
+        `;
+        tbody.appendChild(tr);
+      }
     }
 
     async function loadTimeline() {
@@ -384,6 +448,7 @@
         await loadOverview();
         await loadTimeline();
         await loadIdsComponents();
+        await loadResultsSummaryTable();
       } catch (err) {
         showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
       }
@@ -392,5 +457,6 @@
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
     refreshAll();
   </script>
+
 </body>
 </html>

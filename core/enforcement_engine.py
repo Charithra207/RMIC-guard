@@ -101,6 +101,8 @@ def _ids_on_plan(
         allowed_topics=allowed_topics,
         forbidden_topics=forbidden_topics,
         recent_ids=recent_ids,
+        tool_call_history=[plan.tool_name],
+        allowed_actions=tuple(contract.allowed_actions),
     )
     return components["base_ids"], components
 

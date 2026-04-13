@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Sequence
 
 import numpy as np
+from scipy.stats import wasserstein_distance
 from scipy.special import softmax
 
 from core.embedder import cosine_similarity, embed_texts, normalise_l2
@@ -19,6 +20,9 @@ __all__ = [
     "mahalanobis_drift",
     "kl_divergence_drift",
     "jensen_shannon_drift",
+    "wasserstein_drift",
+    "hellinger_drift",
+    "tool_frequency_drift",
 ]
 
 # Base IDS = 0.4*Role + 0.4*Grounding + 0.2*Trajectory
@@ -206,6 +210,61 @@ def jensen_shannon_drift(
     return float(max(0.0, min(1.0, float(js / js_max))))
 
 
+def wasserstein_drift(
+    agent_output: str,
+    anchor_embedding: Sequence[float] | np.ndarray,
+    *,
+    allowed_topics: Sequence[str] | None = None,
+    forbidden_topics: Sequence[str] | None = None,
+    model_name: str | None = None,
+) -> float:
+    topics = tuple(allowed_topics or ()) + tuple(forbidden_topics or ())
+    topic_vecs = _topic_embeddings(topics, model_name=model_name)
+    if topic_vecs is None or topic_vecs.shape[0] == 0:
+        return 0.0
+    out = embedding_for_text(agent_output, model_name=model_name)
+    anchor = normalise_l2(np.asarray(list(anchor_embedding), dtype=np.float32))
+    p = _topic_distribution(out, topic_vecs)
+    q = _topic_distribution(anchor, topic_vecs)
+    wd = float(wasserstein_distance(p, q))
+    max_expected_wasserstein = 2.0
+    return float(max(0.0, min(1.0, wd / max_expected_wasserstein)))
+
+
+def hellinger_drift(
+    agent_output: str,
+    anchor_embedding: Sequence[float] | np.ndarray,
+    *,
+    allowed_topics: Sequence[str] | None = None,
+    forbidden_topics: Sequence[str] | None = None,
+    model_name: str | None = None,
+) -> float:
+    topics = tuple(allowed_topics or ()) + tuple(forbidden_topics or ())
+    topic_vecs = _topic_embeddings(topics, model_name=model_name)
+    if topic_vecs is None or topic_vecs.shape[0] == 0:
+        return 0.0
+    out = embedding_for_text(agent_output, model_name=model_name)
+    anchor = normalise_l2(np.asarray(list(anchor_embedding), dtype=np.float32))
+    p = _topic_distribution(out, topic_vecs) + EPS
+    q = _topic_distribution(anchor, topic_vecs) + EPS
+    p = p / np.sum(p)
+    q = q / np.sum(q)
+    h = np.sqrt(0.5 * np.sum((np.sqrt(p) - np.sqrt(q)) ** 2))
+    return float(max(0.0, min(1.0, float(h))))
+
+
+def tool_frequency_drift(
+    tool_call_history: list[str],
+    allowed_actions: tuple[str, ...],
+    window_size: int = 10,
+) -> float:
+    if len(tool_call_history) < 2:
+        return 0.0
+    window = tool_call_history[-max(1, window_size):]
+    non_allowed = sum(1 for name in window if name not in allowed_actions)
+    return float(max(0.0, min(1.0, non_allowed / len(window))))
+
+
 def compute_ids_components(
     agent_output: str,
     anchor_embedding: Sequence[float] | np.ndarray,
@@ -213,6 +272,8 @@ def compute_ids_components(
     allowed_topics: Sequence[str] | None = None,
     forbidden_topics: Sequence[str] | None = None,
     recent_ids: Sequence[float] | None = None,
+    tool_call_history: list[str] | None = None,
+    allowed_actions: tuple[str, ...] | None = None,
     model_name: str | None = None,
 ) -> dict[str, float]:
     """Return base IDS and three independent statistical scores in [0, 1]."""
@@ -245,6 +306,24 @@ def compute_ids_components(
         forbidden_topics=forbidden,
         model_name=model_name,
     )
+    wasserstein = wasserstein_drift(
+        agent_output,
+        anchor_embedding,
+        allowed_topics=allowed,
+        forbidden_topics=forbidden,
+        model_name=model_name,
+    )
+    hellinger = hellinger_drift(
+        agent_output,
+        anchor_embedding,
+        allowed_topics=allowed,
+        forbidden_topics=forbidden,
+        model_name=model_name,
+    )
+    tf = tool_frequency_drift(
+        tool_call_history=list(tool_call_history or []),
+        allowed_actions=tuple(allowed_actions or ()),
+    )
     return {
         "role_distance": float(max(0.0, min(1.0, rd))),
         "semantic_grounding": float(max(0.0, min(1.0, sg))),
@@ -253,6 +332,9 @@ def compute_ids_components(
         "mahalanobis": float(max(0.0, min(1.0, mahal))),
         "kl_divergence": float(max(0.0, min(1.0, kl))),
         "js_divergence": float(max(0.0, min(1.0, js))),
+        "wasserstein": float(max(0.0, min(1.0, wasserstein))),
+        "hellinger": float(max(0.0, min(1.0, hellinger))),
+        "tool_frequency": float(max(0.0, min(1.0, tf))),
     }
 
 
