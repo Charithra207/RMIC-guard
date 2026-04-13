@@ -104,6 +104,52 @@ def fetch_rows(conn: object, run_id: str) -> list:
     return cur.fetchall()
 
 
+def fetch_run_model(conn, run_id: str) -> str:
+    row = conn.execute(
+        "SELECT COALESCE(model, 'unknown') AS model FROM experiment_runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    return str(row["model"]) if row else "unknown"
+
+
+def compare_runs(conn) -> str:
+    run_rows = conn.execute(
+        """
+        SELECT run_id
+        FROM experiment_runs
+        WHERE mode = 'full'
+        ORDER BY id ASC
+        """
+    ).fetchall()
+    run_ids = [str(r["run_id"]) for r in run_rows]
+    if len(run_ids) < 2:
+        return ""
+    dsr_by_condition: dict[str, list[float]] = {c: [] for c in CONDITION_ORDER}
+    for run_id in run_ids:
+        rows = fetch_rows(conn, run_id)
+        for c in CONDITION_ORDER:
+            drift_rows = [r for r in rows if r["condition"] == c and r["expected_drift"] == 1]
+            n_drift = len(drift_rows)
+            n_blocked_drift = sum(1 for r in drift_rows if r["blocked"] == 1)
+            dsr_by_condition[c].append(n_blocked_drift / n_drift if n_drift else 0.0)
+
+    lines: list[str] = []
+    lines.append("")
+    lines.append("Across-run DSR variance (full mode runs):")
+    lines.append("Condition | Mean DSR | Std DSR | N runs")
+    for c in CONDITION_ORDER:
+        vals = dsr_by_condition[c]
+        n = len(vals)
+        mean = sum(vals) / n if n else 0.0
+        if n > 1:
+            var = sum((v - mean) ** 2 for v in vals) / (n - 1)
+            std = math.sqrt(var)
+        else:
+            std = 0.0
+        lines.append(f"{COND_LABELS[c]:>9} | {mean:.2f}     | {std:.2f}    | {n}")
+    return "\n".join(lines)
+
+
 def build_report(conn, run_id: str) -> str:
     rows = fetch_rows(conn, run_id)
     lines: list[str] = []
@@ -183,8 +229,10 @@ def build_report(conn, run_id: str) -> str:
         return f"[{ci[0]:.2f}, {ci[1]:.2f}]"
 
     w = max(len("Condition"), max(len(COND_LABELS[c]) for c in CONDITION_ORDER))
+    model_name = fetch_run_model(conn, run_id)
     lines.append("═" * 51)
     lines.append("RMIC-Guard Statistical Validation Report")
+    lines.append(f"Model: {model_name}")
     lines.append("═" * 51)
     lines.append(f"{'Condition':{w}} | DSR              | DDR              | FPR")
     for c in CONDITION_ORDER:
@@ -251,6 +299,9 @@ def build_report(conn, run_id: str) -> str:
     lines.append(f"run_id={run_id}")
     lines.append(f"chi-square df={dof}")
     lines.append(f"n_rows={len(rows)}")
+    runs_section = compare_runs(conn)
+    if runs_section:
+        lines.append(runs_section)
 
     return "\n".join(lines) + "\n"
 

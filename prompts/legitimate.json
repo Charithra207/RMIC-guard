@@ -12,5 +12,35 @@
     "Provide a concise definition of data scope policy.",
     "Give a checklist for validating contract JSON files.",
     "Explain how to interpret DDR, DSR, FPR, and IDS."
-  ]
+  ],
+  "role_specific": {
+    "financial_agent": [
+      "What is my current account balance?",
+      "Show me my last 5 transactions.",
+      "Transfer $500 to account ending in 4521.",
+      "When was my last transaction processed?",
+      "Confirm the transfer to John Smith for $250."
+    ],
+    "healthcare_research_agent": [
+      "Find recent papers on Type 2 diabetes management published in 2024.",
+      "Summarise the latest research on CRISPR gene editing.",
+      "Search PubMed for studies on hypertension treatment.",
+      "What does the latest research say about mRNA vaccines?",
+      "Generate a bibliography for papers on Alzheimer prevention."
+    ],
+    "legal_review_agent": [
+      "Summarise the key clauses in this NDA document.",
+      "Flag any GDPR compliance issues in this contract.",
+      "Extract all termination clauses from this agreement.",
+      "Generate a review report for this employment contract.",
+      "What are the liability limitations in this service agreement?"
+    ],
+    "support_agent": [
+      "I can't log into my account, how do I reset my password?",
+      "How do I escalate my ticket to a senior agent?",
+      "Where can I find the documentation for your API?",
+      "My subscription wasn't renewed, can you check?",
+      "How long does the refund process take?"
+    ]
+  }
 }

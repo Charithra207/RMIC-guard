@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -32,6 +33,9 @@ try:
         DEFAULT_DB_PATH,
         complete_run,
         create_run,
+        export_run_summary_excel,
+        export_run_to_csv,
+        export_run_to_json,
         get_connection,
         init_db,
         insert_result,
@@ -41,6 +45,9 @@ except ModuleNotFoundError:
         DEFAULT_DB_PATH,
         complete_run,
         create_run,
+        export_run_summary_excel,
+        export_run_to_csv,
+        export_run_to_json,
         get_connection,
         init_db,
         insert_result,
@@ -83,6 +90,7 @@ PROMPT_TYPES = [
     "persona_drift",
     "data_scope_drift",
     "legitimate",
+    "legitimate_role_specific",
 ]
 
 PROMPTS_DIR = Path("prompts")
@@ -138,13 +146,16 @@ def _compute_four_metrics(
     return base_ids, mahal, kl_norm, js_norm
 
 
-def load_all_prompts() -> list[dict[str, Any]]:
+def load_all_prompts() -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """
     Loads all prompt files from prompts/ folder.
     Returns list of dicts: {prompt_id, prompt_type, text}
     """
     items: list[dict[str, Any]] = []
+    role_specific: dict[str, list[dict[str, Any]]] = {}
     for pt in PROMPT_TYPES:
+        if pt == "legitimate_role_specific":
+            continue
         path = PROMPTS_DIR / f"{pt}.json"
         if not path.exists():
             print(f"[WARN] Prompt file missing: {path} — skipping")
@@ -162,7 +173,18 @@ def load_all_prompts() -> list[dict[str, Any]]:
                 "prompt_type": pt,
                 "text": text,
             })
-    return items
+        if pt == "legitimate":
+            rs = data.get("role_specific", {})
+            for role_name, prompts_for_role in rs.items():
+                role_items: list[dict[str, Any]] = []
+                for idx, entry in enumerate(prompts_for_role, start=1):
+                    role_items.append({
+                        "prompt_id": f"legitimate_role_specific_{role_name}_{idx:02d}",
+                        "prompt_type": "legitimate_role_specific",
+                        "text": str(entry),
+                    })
+                role_specific[role_name] = role_items
+    return items, role_specific
 
 
 def load_contract(role: str):
@@ -192,12 +214,15 @@ def run_one(
     """
     user_message = prompt["text"]
     prompt_type = prompt["prompt_type"]
-    expected_drift = 0 if prompt_type == "legitimate" else 1
+    expected_drift = 0 if prompt_type in {"legitimate", "legitimate_role_specific"} else 1
 
     base_ids: float | None = None
     mahalanobis: float | None = None
     kl_divergence: float | None = None
     js_divergence: float | None = None
+    wasserstein: float | None = None
+    hellinger: float | None = None
+    tool_frequency: float | None = None
 
     t0 = time.perf_counter()
 
@@ -271,6 +296,9 @@ def run_one(
                 mahalanobis = comp.get("mahalanobis")
                 kl_divergence = comp.get("kl_divergence")
                 js_divergence = comp.get("js_divergence")
+                wasserstein = comp.get("wasserstein")
+                hellinger = comp.get("hellinger")
+                tool_frequency = comp.get("tool_frequency")
             decision = str(outcome.decision)
             blocked = 1 if outcome.decision == "BLOCK" else 0
             drift_detected = 1 if outcome.decision in (
@@ -336,6 +364,9 @@ def run_one(
         "mahalanobis": mahalanobis,
         "kl_divergence": kl_divergence,
         "js_divergence": js_divergence,
+        "wasserstein": wasserstein,
+        "hellinger": hellinger,
+        "tool_frequency": tool_frequency,
         "decision": decision,
         # score: higher = better (1 - ids, or 1.0 for non-C conditions)
         "score": float(1.0 - float(base_ids)),
@@ -360,18 +391,19 @@ def run_experiment(
     from core.tool_layer import ToolRegistry
 
     # Load all prompts from files
-    all_prompts = load_all_prompts()
+    all_prompts, role_specific_legit = load_all_prompts()
     if not all_prompts:
         raise RuntimeError("No prompts loaded. Check that prompts/ folder has all 6 JSON files.")
-
-    prompt_specs = all_prompts[:3] if test_mode else all_prompts
     mode = "test" if test_mode else "full"
 
     print(f"[Runner] Mode: {mode}")
-    print(f"[Runner] Prompts per role per condition: {len(prompt_specs)}")
+    generic_count = len(all_prompts)
+    specific_count = len(role_specific_legit.get(ROLES[0], []))
+    effective_per_role = (3 if test_mode else (generic_count + specific_count))
+    print(f"[Runner] Prompts per role per condition: {effective_per_role}")
     print(f"[Runner] Roles: {len(ROLES)}")
     print(f"[Runner] Conditions: {len(CONDITIONS)}")
-    total = len(ROLES) * len(CONDITIONS) * len(prompt_specs)
+    total = len(ROLES) * len(CONDITIONS) * effective_per_role
     print(f"[Runner] Total API calls: {total}")
     print(f"[Runner] DB: {db_path}")
     print()
@@ -380,7 +412,8 @@ def run_experiment(
     run_id = make_run_id()
     conn = get_connection(db_path)
     init_db(conn)
-    create_run(conn, run_id=run_id, mode=mode)
+    model_name = os.getenv("ANTHROPIC_MODEL")
+    create_run(conn, run_id=run_id, mode=mode, model=model_name)
 
     reasoning_layer = ReasoningLayer()
     tool_registry = ToolRegistry()
@@ -399,6 +432,8 @@ def run_experiment(
                 continue
 
             for condition in CONDITIONS:
+                prompt_bundle = all_prompts + role_specific_legit.get(role, [])
+                prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
                 for prompt in prompt_specs:
                     try:
                         row = run_one(
@@ -434,8 +469,15 @@ def run_experiment(
                         continue
 
         conn.commit()
+        export_dir = db_path.parent / "exports"
+        csv_path = export_run_to_csv(conn, run_id, export_dir)
+        json_path = export_run_to_json(conn, run_id, export_dir)
+        xlsx_path = export_run_summary_excel(conn, run_id, export_dir)
         print()
         print(f"[Runner] Complete. Inserted: {inserted} rows. Errors: {errors}")
+        print(f"[Runner] Export CSV: {csv_path}")
+        print(f"[Runner] Export JSON: {json_path}")
+        print(f"[Runner] Export XLSX: {xlsx_path}")
 
     finally:
         complete_run(conn, run_id=run_id)

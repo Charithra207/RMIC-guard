@@ -9,7 +9,6 @@ Run with:
 
 Then open:
     http://localhost:8001           (Developer View)
-    http://localhost:8001/company   (Company View)
 """
 from __future__ import annotations
 
@@ -43,11 +42,6 @@ def get_conn() -> sqlite3.Connection:
 @app.get("/")
 def index_page() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
-
-
-@app.get("/company")
-def company_page() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "company.html")
 
 
 # ── API routes ────────────────────────────────────────────────────────────────
@@ -187,12 +181,12 @@ def stats() -> dict[str, Any]:
             """
         ).fetchall()
 
-        out: dict[str, dict[str, float]] = {
-            "A_no_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
-            "B_prompt_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
-            "C_rmic_middleware": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
-            "C1_hard_rules_only": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
-            "C2_ids_only": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0},
+        out: dict[str, dict[str, float | list[float]]] = {
+            "A_no_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0, "dsr_ci": [0.0, 0.0]},
+            "B_prompt_contract": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0, "dsr_ci": [0.0, 0.0]},
+            "C_rmic_middleware": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0, "dsr_ci": [0.0, 0.0]},
+            "C1_hard_rules_only": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0, "dsr_ci": [0.0, 0.0]},
+            "C2_ids_only": {"dsr": 0.0, "ddr": 0.0, "fpr": 0.0, "dsr_ci": [0.0, 0.0]},
         }
 
         for row in rows:
@@ -204,10 +198,20 @@ def stats() -> dict[str, Any]:
             detected   = int(row["detected_total"] or 0)
             legitimate = int(row["legitimate_total"] or 0)
             false_det  = int(row["false_detect_total"] or 0)
+            p = blocked / expected if expected else 0.0
+            z = 1.96
+            z2 = z * z
+            denom = 1.0 + (z2 / expected) if expected else 1.0
+            center = ((p + (z2 / (2.0 * expected))) / denom) if expected else 0.0
+            margin = (
+                z * (((p * (1.0 - p) + z2 / (4.0 * expected)) / expected) ** 0.5) / denom
+                if expected else 0.0
+            )
             out[key] = {
                 "dsr": round(blocked  / expected   if expected   else 0.0, 4),
                 "ddr": round(detected / expected   if expected   else 0.0, 4),
                 "fpr": round(false_det / legitimate if legitimate else 0.0, 4),
+                "dsr_ci": [round(max(0.0, center - margin), 4), round(min(1.0, center + margin), 4)],
             }
 
         return out
@@ -231,7 +235,10 @@ def ids_components_timeline() -> dict[str, Any]:
                 base_ids,
                 mahalanobis,
                 kl_divergence,
-                js_divergence
+                js_divergence,
+                wasserstein,
+                hellinger,
+                tool_frequency
             FROM experiment_results
             WHERE condition = 'C_rmic_middleware'
               AND mahalanobis IS NOT NULL
@@ -250,6 +257,9 @@ def ids_components_timeline() -> dict[str, Any]:
             "mahalanobis": [_f(r["mahalanobis"]) for r in rows],
             "kl_divergence": [_f(r["kl_divergence"]) for r in rows],
             "js_divergence": [_f(r["js_divergence"]) for r in rows],
+            "wasserstein": [_f(r["wasserstein"]) for r in rows],
+            "hellinger": [_f(r["hellinger"]) for r in rows],
+            "tool_frequency": [_f(r["tool_frequency"]) for r in rows],
         }
     finally:
         conn.close()
@@ -266,6 +276,9 @@ def ids_components_averages() -> dict[str, Any]:
                 ROUND(AVG(mahalanobis), 4) AS avg_mahalanobis,
                 ROUND(AVG(kl_divergence), 4) AS avg_kl,
                 ROUND(AVG(js_divergence), 4) AS avg_js,
+                ROUND(AVG(wasserstein), 4) AS avg_wasserstein,
+                ROUND(AVG(hellinger), 4) AS avg_hellinger,
+                ROUND(AVG(tool_frequency), 4) AS avg_tool_frequency,
                 ROUND(AVG(base_ids), 4) AS avg_base_ids,
                 COUNT(*) AS n
             FROM experiment_results
@@ -277,49 +290,11 @@ def ids_components_averages() -> dict[str, Any]:
             "avg_mahalanobis": float(row["avg_mahalanobis"] or 0.0),
             "avg_kl": float(row["avg_kl"] or 0.0),
             "avg_js": float(row["avg_js"] or 0.0),
+            "avg_wasserstein": float(row["avg_wasserstein"] or 0.0),
+            "avg_hellinger": float(row["avg_hellinger"] or 0.0),
+            "avg_tool_frequency": float(row["avg_tool_frequency"] or 0.0),
             "avg_base_ids": float(row["avg_base_ids"] or 0.0),
             "sample_count": int(row["n"] or 0),
         }
-    finally:
-        conn.close()
-
-
-@app.get("/api/four-metrics-by-condition")
-def four_metrics_by_condition() -> dict[str, Any]:
-    """
-    Average four independent metrics by condition for direct comparison charting.
-    """
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            """
-            SELECT
-                condition,
-                ROUND(AVG(COALESCE(ids_score, 0.0)), 4) AS avg_base_ids,
-                ROUND(AVG(COALESCE(mahalanobis, 0.0)), 4) AS avg_mahalanobis,
-                ROUND(AVG(COALESCE(kl_divergence, 0.0)), 4) AS avg_kl,
-                ROUND(AVG(COALESCE(js_divergence, 0.0)), 4) AS avg_js
-            FROM experiment_results
-            GROUP BY condition
-            """
-        ).fetchall()
-        base = {
-            "A_no_contract": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-            "B_prompt_contract": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-            "C_rmic_middleware": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-            "C1_hard_rules_only": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-            "C2_ids_only": {"base_ids": 0.0, "mahalanobis": 0.0, "kl_divergence": 0.0, "js_divergence": 0.0},
-        }
-        for r in rows:
-            key = str(r["condition"])
-            if key not in base:
-                continue
-            base[key] = {
-                "base_ids": float(r["avg_base_ids"] or 0.0),
-                "mahalanobis": float(r["avg_mahalanobis"] or 0.0),
-                "kl_divergence": float(r["avg_kl"] or 0.0),
-                "js_divergence": float(r["avg_js"] or 0.0),
-            }
-        return base
     finally:
         conn.close()
