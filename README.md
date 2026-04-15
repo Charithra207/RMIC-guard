@@ -28,7 +28,6 @@ RMIC-guard/
 ├── dashboard/
 │   ├── app.py
 │   └── frontend/
-│       ├── company.html
 │       └── index.html
 ├── experiment/
 │   ├── metrics.py
@@ -41,6 +40,8 @@ RMIC-guard/
 │   ├── permission_drift.json
 │   ├── persona_drift.json
 │   └── role_drift.json
+├── results/
+│   └── exports/               # Auto-written run exports (CSV/JSON/XLSX)
 ├── requirements.txt
 ├── setup.py
 └── demo.py
@@ -51,6 +52,7 @@ RMIC-guard/
 - Python 3.10+ (recommended: 3.11 on Windows)
 - Git
 - **Anthropic** API key (`sk-ant-...`) with credits — this repo calls **api.anthropic.com** directly (OpenRouter is not used)
+- Run 3 times with the same model for statistical variance measurement. Report mean ± std across runs using `python -m experiment.statistical_tests`.
 
 ### Model name (`ANTHROPIC_MODEL`)
 
@@ -96,7 +98,8 @@ python -m experiment.metrics
 ```
 
 Expected:
-- runner prints `run_id` and `rows_inserted=60` in `--test` (4 roles × 5 conditions × 3 prompts); full run inserts **1200** rows (4 × 5 × 60)
+- runner prints `run_id` and `rows_inserted=60` in `--test` (test mode: 4 roles × 5 conditions × 3 prompts)
+- full mode inserts **1300** rows (4 roles × 5 conditions × 65 prompts: 50 adversarial + 10 generic legitimate + 5 role-specific legitimate per role)
 - metrics prints `DDR`, `DSR`, `FPR`, `IDS`
 
 ## Run Dashboard
@@ -107,16 +110,36 @@ python -m uvicorn dashboard.app:app --reload --port 8001
 
 Open:
 - `http://127.0.0.1:8001/` (developer view)
-- `http://127.0.0.1:8001/company` (company view)
 
 APIs:
 - `GET /api/health`
 - `GET /api/overview`
-- `GET /api/ids-timeline`
-- `GET /api/ids-components-timeline` — base IDS + Mahalanobis / KL / JS (Condition C rows, independent metrics)
-- `GET /api/ids-components-averages` — aggregate means for those components
+- `GET /api/ids-timeline` — running avg of Base IDS, Mahalanobis, KL, JS
+- `GET /api/ids-components-timeline` — 7 independent metrics for Condition C rows (Base IDS, Mahalanobis, KL, JS, Wasserstein, Hellinger, Tool Frequency)
+- `GET /api/ids-components-averages` — aggregate means for all 7 metrics
 - `GET /api/drift-pie`
-- `GET /api/stats`
+- `GET /api/stats` — DSR/DDR/FPR with Wilson 95% CI per condition
+
+## Experiment Exports
+
+After each full run, three export files are automatically written to `results/exports/`:
+- `{run_id}.csv` — all raw rows
+- `{run_id}.json` — raw rows + per-condition DSR/DDR/FPR summary
+- `{run_id}_summary.xlsx` — 4 sheets:
+  Sheet 1: raw_rows, Sheet 2: condition_metrics,
+  Sheet 3: role_dsr_condition_c, Sheet 4: ablation
+
+## IDS Metrics (7 Independent Signals)
+
+- Base IDS = 0.4×RoleDistance + 0.4×SemanticGrounding + 0.2×TrajectoryCurvature
+- Mahalanobis distance (covariance-aware, 384-dim embedding space)
+- KL Divergence (most sensitive early-warning signal)
+- Jensen-Shannon Divergence (primary enforcement metric — symmetric, bounded [0,1])
+- Wasserstein Distance (geometry-aware Earth Mover's Distance)
+- Hellinger Distance (tail-sensitive, bounded [0,1])
+- Tool Frequency Drift (behavioral pattern drift across session window)
+
+Note: all 7 are computed independently and never blended.
 
 ## Team Branches
 
