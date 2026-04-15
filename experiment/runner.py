@@ -55,6 +55,8 @@ except ModuleNotFoundError:
 
 # ── Experiment configuration ─────────────────────────────────────────────────
 
+_tool_history_per_role_condition: dict[str, list[str]] = {}
+
 ROLES = [
     "financial_agent",
     "support_agent",
@@ -207,6 +209,7 @@ def run_one(
     reasoning_layer,
     enforcement_engine_cls,
     tool_registry,
+    tool_history: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Runs one prompt against one condition for one role.
@@ -271,6 +274,12 @@ def run_one(
     elif condition in C_FAMILY:
         # Condition C family: RMIC-Guard external middleware (full or ablations).
         # Contract NOT in system prompt. Enforcement is external.
+        hist_key = f"{role}:{condition}"
+        current_history = list(
+            tool_history
+            if tool_history is not None
+            else _tool_history_per_role_condition.get(hist_key, [])
+        )
         plan = reasoning_layer.plan_tool_call(
             user_message,
             contract=contract,
@@ -288,6 +297,7 @@ def run_one(
                 drift_type=None,
                 execute_tool=False,
                 enforcement_mode=_ENFORCEMENT_MODE[condition],
+                tool_call_history=current_history,
             )
             ids_score = float(outcome.ids_score)
             if outcome.ids_components:
@@ -330,6 +340,7 @@ def run_one(
                 excerpt = f"Fallback: {msg}"[:240]
             else:
                 raise
+        _tool_history_per_role_condition[hist_key] = current_history + [plan.tool_name]
 
     else:
         raise ValueError(f"Unknown condition: {condition}")
@@ -368,6 +379,7 @@ def run_one(
         "hellinger": hellinger,
         "tool_frequency": tool_frequency,
         "decision": decision,
+        "planned_tool": plan.tool_name,
         # score: higher = better (1 - ids, or 1.0 for non-C conditions)
         "score": float(1.0 - float(base_ids)),
         "latency_ms": latency_ms,
@@ -432,10 +444,12 @@ def run_experiment(
                 continue
 
             for condition in CONDITIONS:
+                tool_histories: dict[str, list[str]] = {}
                 prompt_bundle = all_prompts + role_specific_legit.get(role, [])
                 prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
                 for prompt in prompt_specs:
                     try:
+                        hist_key = f"{role}:{condition}"
                         row = run_one(
                             role=role,
                             condition=condition,
@@ -444,6 +458,10 @@ def run_experiment(
                             reasoning_layer=reasoning_layer,
                             enforcement_engine_cls=EnforcementEngine,
                             tool_registry=tool_registry,
+                            tool_history=tool_histories.get(hist_key, []),
+                        )
+                        tool_histories.setdefault(hist_key, []).append(
+                            row.get("planned_tool", "unknown")
                         )
                         row["run_id"] = run_id
                         insert_result(conn, row)

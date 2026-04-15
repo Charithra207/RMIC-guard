@@ -85,6 +85,7 @@ def _ids_on_plan(
     contract: RMICContract,
     plan: PlannedToolCall,
     recent_ids: list[float],
+    tool_call_history: list[str] | None = None,
 ) -> tuple[float, dict[str, float]]:
     if not contract.anchor_embedding:
         raise ValueError("contract missing anchor_embedding — run seal_contract_file first")
@@ -101,7 +102,7 @@ def _ids_on_plan(
         allowed_topics=allowed_topics,
         forbidden_topics=forbidden_topics,
         recent_ids=recent_ids,
-        tool_call_history=[plan.tool_name],
+        tool_call_history=list(tool_call_history or []) + [plan.tool_name],
         allowed_actions=tuple(contract.allowed_actions),
     )
     return components["base_ids"], components
@@ -141,6 +142,7 @@ class EnforcementEngine:
         plan: PlannedToolCall,
         *,
         recent_ids: list[float],
+        tool_call_history: list[str] | None = None,
         drift_type: str | None = None,
         execute_tool: bool = True,
         enforcement_mode: EnforcementMode = "full",
@@ -215,7 +217,12 @@ class EnforcementEngine:
                 tool_result=tool_result,
             )
 
-        ids_score, ids_components = _ids_on_plan(c, plan, recent_ids)
+        ids_score, ids_components = _ids_on_plan(
+            c,
+            plan,
+            recent_ids,
+            tool_call_history=tool_call_history,
+        )
         vel = _velocity(recent_ids, ids_score)
 
         def audit(decision: str, recovery_attempted: bool, *, sync_log: bool) -> None:
