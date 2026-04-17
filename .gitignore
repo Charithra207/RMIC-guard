@@ -8,3 +8,6 @@ data/results.db
 data/audit_ledger.jsonl
 results/*.db
 results/*.jsonl
+results/exports/
+results/*.xlsx
+results/statistical_report.txt

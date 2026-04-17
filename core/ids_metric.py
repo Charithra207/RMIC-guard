@@ -226,7 +226,8 @@ def wasserstein_drift(
     anchor = normalise_l2(np.asarray(list(anchor_embedding), dtype=np.float32))
     p = _topic_distribution(out, topic_vecs)
     q = _topic_distribution(anchor, topic_vecs)
-    wd = float(wasserstein_distance(p, q))
+    positions = np.arange(len(p), dtype=np.float64)
+    wd = float(wasserstein_distance(positions, positions, u_weights=p, v_weights=q))
     max_expected_wasserstein = 2.0
     return float(max(0.0, min(1.0, wd / max_expected_wasserstein)))
 
