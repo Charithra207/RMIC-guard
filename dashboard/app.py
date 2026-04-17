@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 
 # ── CRITICAL: This path must match results_store.py DEFAULT_DB_PATH ──────────
@@ -37,6 +37,19 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def get_latest_run_id(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute(
+        """
+        SELECT run_id FROM experiment_runs
+        WHERE EXISTS (
+            SELECT 1 FROM experiment_results e WHERE e.run_id = experiment_runs.run_id
+        )
+        ORDER BY id DESC LIMIT 1
+        """
+    ).fetchone()
+    return str(row["run_id"]) if row else None
+
+
 # ── Page routes ───────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -55,13 +68,48 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/runs")
+def list_runs() -> dict[str, Any]:
+    """List all experiment runs for the run selector."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT r.run_id, r.mode, r.model, r.started_at,
+                   COUNT(e.id) AS row_count
+            FROM experiment_runs r
+            LEFT JOIN experiment_results e ON e.run_id = r.run_id
+            GROUP BY r.run_id
+            ORDER BY r.id DESC
+            """
+        ).fetchall()
+        return {
+            "runs": [
+                {
+                    "run_id": str(r["run_id"]),
+                    "mode": str(r["mode"]),
+                    "model": str(r["model"] or "unknown"),
+                    "started_at": str(r["started_at"]),
+                    "row_count": int(r["row_count"] or 0),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/api/overview")
-def overview() -> dict[str, Any]:
+def overview(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """KPI summary — total calls, drift counts, avg score and latency."""
     conn = get_conn()
     try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        where_clause = "WHERE run_id = ?" if run_id else ""
+        params = (run_id,) if run_id else ()
         row = conn.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS total_calls,
                 SUM(CASE WHEN expected_drift = 1 THEN 1 ELSE 0 END) AS expected_drift_calls,
@@ -70,7 +118,9 @@ def overview() -> dict[str, Any]:
                 ROUND(AVG(score), 4) AS avg_score,
                 ROUND(AVG(latency_ms), 2) AS avg_latency_ms
             FROM experiment_results
-            """
+            {where_clause}
+            """,
+            params,
         ).fetchone()
         return {
             "total_calls": int(row["total_calls"] or 0),
@@ -79,18 +129,23 @@ def overview() -> dict[str, Any]:
             "blocked_calls": int(row["blocked_calls"] or 0),
             "avg_score": float(row["avg_score"] or 0.0),
             "avg_latency_ms": float(row["avg_latency_ms"] or 0.0),
+            "active_run_id": run_id,
         }
     finally:
         conn.close()
 
 
 @app.get("/api/ids-timeline")
-def ids_timeline() -> dict[str, Any]:
+def ids_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """Running four-metric timeline over time for side-by-side comparison."""
     conn = get_conn()
     try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        where_clause = "WHERE run_id = ?" if run_id else ""
+        params = (run_id,) if run_id else ()
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 created_at,
                 COALESCE(ids_score, 0.0) AS ids_score,
@@ -98,8 +153,10 @@ def ids_timeline() -> dict[str, Any]:
                 COALESCE(kl_divergence, 0.0) AS kl_divergence,
                 COALESCE(js_divergence, 0.0) AS js_divergence
             FROM experiment_results
+            {where_clause}
             ORDER BY created_at ASC, id ASC
-            """
+            """,
+            params,
         ).fetchall()
         labels: list[str] = []
         ids_values: list[float] = []
@@ -127,36 +184,44 @@ def ids_timeline() -> dict[str, Any]:
             "mahalanobis_distance": mahal_values,
             "kl_divergence": kl_values,
             "js_divergence": js_values,
+            "active_run_id": run_id,
         }
     finally:
         conn.close()
 
 
 @app.get("/api/drift-pie")
-def drift_pie() -> dict[str, Any]:
+def drift_pie(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """Drift type distribution — feeds the pie chart."""
     conn = get_conn()
     try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        where_clause = "WHERE run_id = ?" if run_id else ""
+        params = (run_id,) if run_id else ()
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 COALESCE(detected_drift_type, prompt_type) AS drift_type,
                 COUNT(*) AS count
             FROM experiment_results
+            {where_clause}
             GROUP BY drift_type
             ORDER BY count DESC
-            """
+            """,
+            params,
         ).fetchall()
         return {
             "labels": [str(r["drift_type"]) for r in rows],
             "values": [int(r["count"]) for r in rows],
+            "active_run_id": run_id,
         }
     finally:
         conn.close()
 
 
 @app.get("/api/stats")
-def stats() -> dict[str, Any]:
+def stats(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """
     Per-condition DSR, DDR, FPR — feeds the three-condition comparison bar chart.
     This is the most important endpoint — it is the proof that RMIC-Guard works.
@@ -167,8 +232,12 @@ def stats() -> dict[str, Any]:
     """
     conn = get_conn()
     try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        where_clause = "WHERE run_id = ?" if run_id else ""
+        params = (run_id,) if run_id else ()
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 condition,
                 SUM(CASE WHEN expected_drift = 1 THEN 1 ELSE 0 END)              AS expected_total,
@@ -177,8 +246,10 @@ def stats() -> dict[str, Any]:
                 SUM(CASE WHEN expected_drift = 0 THEN 1 ELSE 0 END)              AS legitimate_total,
                 SUM(CASE WHEN expected_drift = 0 AND drift_detected = 1 THEN 1 ELSE 0 END) AS false_detect_total
             FROM experiment_results
+            {where_clause}
             GROUP BY condition
-            """
+            """,
+            params,
         ).fetchall()
 
         out: dict[str, dict[str, float | list[float]]] = {
@@ -214,21 +285,28 @@ def stats() -> dict[str, Any]:
                 "dsr_ci": [round(max(0.0, center - margin), 4), round(min(1.0, center + margin), 4)],
             }
 
-        return out
+        return {"active_run_id": run_id, "stats": out}
     finally:
         conn.close()
 
 
 @app.get("/api/ids-components-timeline")
-def ids_components_timeline() -> dict[str, Any]:
+def ids_components_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """
     Per-row base IDS + Mahalanobis / KL / JS (Condition C rows where computed;
     independent metrics from the runner, not a single mixed IDS score).
     """
     conn = get_conn()
     try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        where_clause = "WHERE condition = 'C_rmic_middleware' AND mahalanobis IS NOT NULL"
+        params: tuple[str, ...] = ()
+        if run_id:
+            where_clause += " AND run_id = ?"
+            params = (run_id,)
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 created_at,
                 ids_score,
@@ -240,10 +318,10 @@ def ids_components_timeline() -> dict[str, Any]:
                 hellinger,
                 tool_frequency
             FROM experiment_results
-            WHERE condition = 'C_rmic_middleware'
-              AND mahalanobis IS NOT NULL
+            {where_clause}
             ORDER BY id ASC
-            """
+            """,
+            params,
         ).fetchall()
 
         def _f(val: Any) -> float | None:
@@ -260,18 +338,26 @@ def ids_components_timeline() -> dict[str, Any]:
             "wasserstein": [_f(r["wasserstein"]) for r in rows],
             "hellinger": [_f(r["hellinger"]) for r in rows],
             "tool_frequency": [_f(r["tool_frequency"]) for r in rows],
+            "active_run_id": run_id,
         }
     finally:
         conn.close()
 
 
 @app.get("/api/ids-components-averages")
-def ids_components_averages() -> dict[str, Any]:
+def ids_components_averages(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """Aggregate means over Condition C rows that have component scores stored."""
     conn = get_conn()
     try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        where_clause = "WHERE condition = 'C_rmic_middleware' AND mahalanobis IS NOT NULL"
+        params: tuple[str, ...] = ()
+        if run_id:
+            where_clause += " AND run_id = ?"
+            params = (run_id,)
         row = conn.execute(
-            """
+            f"""
             SELECT
                 ROUND(AVG(mahalanobis), 4) AS avg_mahalanobis,
                 ROUND(AVG(kl_divergence), 4) AS avg_kl,
@@ -282,9 +368,9 @@ def ids_components_averages() -> dict[str, Any]:
                 ROUND(AVG(base_ids), 4) AS avg_base_ids,
                 COUNT(*) AS n
             FROM experiment_results
-            WHERE condition = 'C_rmic_middleware'
-              AND mahalanobis IS NOT NULL
-            """
+            {where_clause}
+            """,
+            params,
         ).fetchone()
         return {
             "avg_mahalanobis": float(row["avg_mahalanobis"] or 0.0),
@@ -295,6 +381,7 @@ def ids_components_averages() -> dict[str, Any]:
             "avg_tool_frequency": float(row["avg_tool_frequency"] or 0.0),
             "avg_base_ids": float(row["avg_base_ids"] or 0.0),
             "sample_count": int(row["n"] or 0),
+            "active_run_id": run_id,
         }
     finally:
         conn.close()

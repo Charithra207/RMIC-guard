@@ -210,6 +210,7 @@ def run_one(
     enforcement_engine_cls,
     tool_registry,
     tool_history: list[str] | None = None,
+    recent_ids: list[float] | None = None,
 ) -> dict[str, Any]:
     """
     Runs one prompt against one condition for one role.
@@ -293,7 +294,7 @@ def run_one(
         try:
             outcome = engine.evaluate_and_maybe_execute(
                 plan,
-                recent_ids=[],
+                recent_ids=list(recent_ids or []),
                 drift_type=None,
                 execute_tool=False,
                 enforcement_mode=_ENFORCEMENT_MODE[condition],
@@ -402,6 +403,9 @@ def run_experiment(
     from core.enforcement_engine import EnforcementEngine
     from core.tool_layer import ToolRegistry
 
+    global _tool_history_per_role_condition
+    _tool_history_per_role_condition = {}
+
     # Load all prompts from files
     all_prompts, role_specific_legit = load_all_prompts()
     if not all_prompts:
@@ -445,6 +449,7 @@ def run_experiment(
 
             for condition in CONDITIONS:
                 tool_histories: dict[str, list[str]] = {}
+                ids_histories: dict[str, list[float]] = {}
                 prompt_bundle = all_prompts + role_specific_legit.get(role, [])
                 prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
                 for prompt in prompt_specs:
@@ -459,10 +464,15 @@ def run_experiment(
                             enforcement_engine_cls=EnforcementEngine,
                             tool_registry=tool_registry,
                             tool_history=tool_histories.get(hist_key, []),
+                            recent_ids=ids_histories.get(hist_key, []),
                         )
                         tool_histories.setdefault(hist_key, []).append(
                             row.get("planned_tool", "unknown")
                         )
+                        if row.get("ids_score") is not None:
+                            ids_histories.setdefault(hist_key, []).append(
+                                float(row["ids_score"])
+                            )
                         row["run_id"] = run_id
                         insert_result(conn, row)
                         inserted += 1

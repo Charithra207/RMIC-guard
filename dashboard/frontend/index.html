@@ -147,6 +147,9 @@
       <div class="brand"><span class="dot"></span> RMIC Guard</div>
       <div class="nav">
         <span class="pill"><strong>RMIC Guard Dashboard</strong></span>
+        <select id="runSelector" class="btn" style="font-size:12px;padding:7px 10px;">
+          <option value="">Loading runs...</option>
+        </select>
         <button class="btn" id="refreshBtn" type="button">Refresh</button>
       </div>
     </div>
@@ -254,6 +257,35 @@
       return await res.json();
     }
 
+    async function loadRuns() {
+      const data = await fetchJson('/api/runs');
+      const sel = document.getElementById('runSelector');
+      const current = sel.value;
+      sel.innerHTML = '';
+      for (const run of data.runs) {
+        const opt = document.createElement('option');
+        opt.value = run.run_id;
+        opt.textContent = `${run.run_id} (${run.row_count} rows, ${run.mode})`;
+        sel.appendChild(opt);
+      }
+      if (current && data.runs.some(r => r.run_id === current)) {
+        sel.value = current;
+      } else if (data.runs.length) {
+        sel.value = data.runs[0].run_id;
+      }
+    }
+
+    function getSelectedRunId() {
+      return document.getElementById('runSelector').value || null;
+    }
+
+    function withRunId(url) {
+      const runId = getSelectedRunId();
+      if (!runId) return url;
+      const sep = url.includes('?') ? '&' : '?';
+      return `${url}${sep}run_id=${encodeURIComponent(runId)}`;
+    }
+
     async function loadHealth() {
       const data = await fetchJson('/api/health');
       document.getElementById('db_path').textContent = `DB: ${data.db_path}`;
@@ -263,7 +295,7 @@
     }
 
     async function loadOverview() {
-      const data = await fetchJson('/api/overview');
+      const data = await fetchJson(withRunId('/api/overview'));
       document.getElementById('total_calls').textContent = data.total_calls;
       document.getElementById('expected_drift_calls').textContent = data.expected_drift_calls;
       document.getElementById('detected_drift_calls').textContent = data.detected_drift_calls;
@@ -285,7 +317,7 @@
       const hint = document.getElementById('componentsHint');
       hint.textContent = 'Loading…';
       clearComponentsNotice();
-      const data = await fetchJson('/api/ids-components-timeline');
+      const data = await fetchJson(withRunId('/api/ids-components-timeline'));
       const n = (data.mahalanobis || []).length;
       hint.textContent = n ? `Points: ${n} (Condition C)` : 'No component rows yet';
       if (!n) {
@@ -342,7 +374,8 @@
     }
 
     async function loadResultsSummaryTable() {
-      const data = await fetchJson('/api/stats');
+      const data = await fetchJson(withRunId('/api/stats'));
+      const stats = data.stats || {};
       const order = [
         ['A_no_contract', 'A'],
         ['B_prompt_contract', 'B'],
@@ -353,7 +386,7 @@
       const tbody = document.getElementById('resultsSummaryBody');
       tbody.innerHTML = '';
       for (const [key, label] of order) {
-        const row = data[key] || {};
+        const row = stats[key] || {};
         const ci = row.dsr_ci || [0, 0];
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -370,7 +403,7 @@
     async function loadTimeline() {
       const hint = document.getElementById('timelineHint');
       hint.textContent = 'Loading…';
-      const data = await fetchJson('/api/ids-timeline');
+      const data = await fetchJson(withRunId('/api/ids-timeline'));
       hint.textContent = data.ids_score?.length ? `Points: ${data.ids_score.length}` : 'No data';
 
       const ctx = document.getElementById('idsTimelineChart');
@@ -444,6 +477,7 @@
     async function refreshAll() {
       clearStatus();
       try {
+        await loadRuns();
         await loadHealth();
         await loadOverview();
         await loadTimeline();
@@ -455,6 +489,7 @@
     }
 
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
+    document.getElementById('runSelector').addEventListener('change', refreshAll);
     refreshAll();
   </script>
 
