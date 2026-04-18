@@ -33,13 +33,16 @@ class PlannedToolCall:
 
 
 # Default: current-generation Sonnet on the direct Anthropic API (not OpenRouter).
-DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 
 # These IDs return 404 from api.anthropic.com — they were removed or replaced.
 _RETIRED_ANTHROPIC_MODELS: frozenset[str] = frozenset(
     {
         "claude-3-sonnet-20240229",
         "claude-3-opus-20240229",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-5-sonnet-latest",
     }
 )
 
