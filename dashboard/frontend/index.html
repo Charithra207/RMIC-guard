@@ -233,6 +233,21 @@
           </table>
         </div>
       </div>
+
+      <div class="card chart-card summary-card">
+        <div class="pad">
+          <div class="card-title">
+            <h2>Cross-Run Comparison</h2>
+            <div class="hint">DSR / DDR / FPR for every run — all conditions</div>
+          </div>
+          <div id="crossRunTableWrap" style="overflow-x:auto;">
+            <table id="crossRunTable">
+              <thead id="crossRunHead"></thead>
+              <tbody id="crossRunBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -400,6 +415,54 @@
       }
     }
 
+    async function loadCrossRunComparison() {
+      const data = await fetchJson('/api/runs-comparison');
+      const runs = data.runs || [];
+      if (!runs.length) return;
+
+      const conditions = ['A', 'B', 'C', 'C1', 'C2'];
+      const thead = document.getElementById('crossRunHead');
+      const tbody = document.getElementById('crossRunBody');
+
+      // Header row
+      let headerHtml = '<tr><th>Run</th><th>Model</th><th>Rows</th>';
+      for (const c of conditions) {
+        headerHtml += `<th colspan="3" style="text-align:center;border-left:1px solid rgba(255,255,255,0.15)">${c}</th>`;
+      }
+      headerHtml += '</tr>';
+      headerHtml += '<tr><th></th><th></th><th></th>';
+      for (const c of conditions) {
+        headerHtml += `<th style="color:var(--ok);border-left:1px solid rgba(255,255,255,0.15)">DSR</th>
+                       <th style="color:var(--warn)">DDR</th>
+                       <th style="color:var(--bad)">FPR</th>`;
+      }
+      headerHtml += '</tr>';
+      thead.innerHTML = headerHtml;
+
+      // Data rows
+      tbody.innerHTML = '';
+      runs.forEach((run, i) => {
+        const label = `Run ${i + 1}`;
+        let row = `<tr>
+          <td><strong>${label}</strong><br><span style="font-size:11px;color:var(--muted)">${run.started_at.slice(0,16).replace('T',' ')}</span></td>
+          <td style="font-size:12px">${run.model}</td>
+          <td>${run.row_count}</td>`;
+        for (const c of conditions) {
+          const s = run.conditions[c] || {};
+          const dsr = (s.dsr ?? 0).toFixed(2);
+          const ddr = (s.ddr ?? 0).toFixed(2);
+          const fpr = (s.fpr ?? 0).toFixed(2);
+          const dsrColor = s.dsr >= 0.99 ? 'var(--ok)' : s.dsr >= 0.8 ? 'var(--warn)' : 'var(--bad)';
+          const fprColor = s.fpr <= 0.05 ? 'var(--ok)' : s.fpr <= 0.2 ? 'var(--warn)' : 'var(--bad)';
+          row += `<td style="color:${dsrColor};font-weight:700;border-left:1px solid rgba(255,255,255,0.10)">${dsr}</td>
+                  <td style="color:var(--warn)">${ddr}</td>
+                  <td style="color:${fprColor}">${fpr}</td>`;
+        }
+        row += '</tr>';
+        tbody.innerHTML += row;
+      });
+    }
+
     async function loadTimeline() {
       const hint = document.getElementById('timelineHint');
       hint.textContent = 'Loading…';
@@ -483,6 +546,7 @@
         await loadTimeline();
         await loadIdsComponents();
         await loadResultsSummaryTable();
+        await loadCrossRunComparison();
       } catch (err) {
         showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
       }
