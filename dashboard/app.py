@@ -137,7 +137,7 @@ def overview(run_id: str | None = Query(default=None)) -> dict[str, Any]:
 
 @app.get("/api/ids-timeline")
 def ids_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
-    """Running four-metric timeline over time for side-by-side comparison."""
+    """Running average of 4 independent IDS metrics over time."""
     conn = get_conn()
     try:
         if run_id is None:
@@ -148,10 +148,10 @@ def ids_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
             f"""
             SELECT
                 created_at,
-                COALESCE(ids_score, 0.0) AS ids_score,
-                COALESCE(mahalanobis, 0.0) AS mahalanobis_distance,
-                COALESCE(kl_divergence, 0.0) AS kl_divergence,
-                COALESCE(js_divergence, 0.0) AS js_divergence
+                COALESCE(base_ids, ids_score, 0.0) AS base_ids,
+                COALESCE(mahalanobis, 0.0) AS mahalanobis,
+                COALESCE(js_divergence, 0.0) AS js_divergence,
+                COALESCE(tool_frequency, 0.0) AS tool_frequency
             FROM experiment_results
             {where_clause}
             ORDER BY created_at ASC, id ASC
@@ -159,31 +159,27 @@ def ids_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
             params,
         ).fetchall()
         labels: list[str] = []
-        ids_values: list[float] = []
-        mahal_values: list[float] = []
-        kl_values: list[float] = []
-        js_values: list[float] = []
-        ids_running = 0.0
-        mahal_running = 0.0
-        kl_running = 0.0
-        js_running = 0.0
+        base_ids_vals: list[float] = []
+        mahal_vals: list[float] = []
+        js_vals: list[float] = []
+        tf_vals: list[float] = []
+        base_run = mahal_run = js_run = tf_run = 0.0
         for idx, r in enumerate(rows, start=1):
-            ids_running += float(r["ids_score"])
-            mahal_running += float(r["mahalanobis_distance"])
-            kl_running += float(r["kl_divergence"])
-            js_running += float(r["js_divergence"])
+            base_run += float(r["base_ids"])
+            mahal_run += float(r["mahalanobis"])
+            js_run += float(r["js_divergence"])
+            tf_run += float(r["tool_frequency"])
             labels.append(r["created_at"])
-            ids_values.append(round(ids_running / idx, 4))
-            mahal_values.append(round(mahal_running / idx, 4))
-            kl_values.append(round(kl_running / idx, 4))
-            js_values.append(round(js_running / idx, 4))
+            base_ids_vals.append(round(base_run / idx, 4))
+            mahal_vals.append(round(mahal_run / idx, 4))
+            js_vals.append(round(js_run / idx, 4))
+            tf_vals.append(round(tf_run / idx, 4))
         return {
             "labels": labels,
-            "ids_score": ids_values,
-            "ids_label": "Base IDS",
-            "mahalanobis_distance": mahal_values,
-            "kl_divergence": kl_values,
-            "js_divergence": js_values,
+            "base_ids": base_ids_vals,
+            "mahalanobis": mahal_vals,
+            "js_divergence": js_vals,
+            "tool_frequency": tf_vals,
             "active_run_id": run_id,
         }
     finally:

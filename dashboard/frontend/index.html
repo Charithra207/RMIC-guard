@@ -190,26 +190,13 @@
       <div class="card chart-card">
         <div class="pad">
           <div class="card-title">
-            <h2>Four-Metric Timeline (running score)</h2>
+            <h2>IDS Metrics Timeline — Base IDS · Mahalanobis · Jensen–Shannon · Tool Frequency</h2>
             <div class="hint" id="timelineHint">Loading…</div>
           </div>
           <div class="chart-wrap">
             <canvas id="idsTimelineChart"></canvas>
           </div>
           <div class="notice" id="statusBox" style="display:none;"></div>
-        </div>
-      </div>
-
-      <div class="card chart-card">
-        <div class="pad">
-          <div class="card-title">
-            <h2>IDS components — Condition C (independent metrics)</h2>
-            <div class="hint" id="componentsHint">Loading…</div>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="idsComponentsChart"></canvas>
-          </div>
-          <div class="notice" id="componentsNotice" style="display:none;"></div>
         </div>
       </div>
 
@@ -253,7 +240,6 @@
 
   <script>
     let timelineChart = null;
-    let componentsChart = null;
 
     function showStatus(message) {
       const el = document.getElementById('statusBox');
@@ -315,77 +301,6 @@
       document.getElementById('expected_drift_calls').textContent = data.expected_drift_calls;
       document.getElementById('detected_drift_calls').textContent = data.detected_drift_calls;
       document.getElementById('blocked_calls').textContent = data.blocked_calls;
-    }
-
-    function showComponentsNotice(message) {
-      const el = document.getElementById('componentsNotice');
-      el.style.display = 'block';
-      el.innerHTML = message;
-    }
-    function clearComponentsNotice() {
-      const el = document.getElementById('componentsNotice');
-      el.style.display = 'none';
-      el.innerHTML = '';
-    }
-
-    async function loadIdsComponents() {
-      const hint = document.getElementById('componentsHint');
-      hint.textContent = 'Loading…';
-      clearComponentsNotice();
-      const data = await fetchJson(withRunId('/api/ids-components-timeline'));
-      const n = (data.mahalanobis || []).length;
-      hint.textContent = n ? `Points: ${n} (Condition C)` : 'No component rows yet';
-      if (!n) {
-        showComponentsNotice(
-          '<strong>No data.</strong> Run <code>python -m experiment.runner</code> after upgrading the DB; ' +
-          'only Condition C rows store Mahalanobis / KL / JS.'
-        );
-      }
-
-      const ctx = document.getElementById('idsComponentsChart');
-      const labels = data.labels || [];
-      const ds = (label, arr, color, dash) => ({
-        label,
-        data: arr || [],
-        borderWidth: 2,
-        borderColor: color,
-        fill: false,
-        tension: 0.2,
-        pointRadius: 0,
-        borderDash: dash || [],
-      });
-
-      const config = {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            ds('Base IDS', data.base_ids, 'rgba(124, 58, 237, 0.95)', []),
-            ds('Mahalanobis', data.mahalanobis, 'rgba(59, 130, 246, 0.95)', []),
-            ds('KL divergence', data.kl_divergence, 'rgba(34, 197, 94, 0.95)', []),
-            ds('Jensen–Shannon', data.js_divergence, 'rgba(245, 158, 11, 0.95)', []),
-            ds('Wasserstein', data.wasserstein, 'rgba(239, 68, 68, 0.95)', []),
-            ds('Hellinger', data.hellinger, 'rgba(249, 115, 22, 0.95)', []),
-            ds('Tool Frequency', data.tool_frequency, 'rgba(168, 85, 247, 0.95)', []),
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { labels: { color: 'rgba(255,255,255,0.85)' } },
-            tooltip: { mode: 'index', intersect: false },
-          },
-          scales: {
-            x: { ticks: { color: 'rgba(255,255,255,0.65)', maxRotation: 0 }, grid: { color: 'rgba(255,255,255,0.06)' } },
-            y: { min: 0, max: 1, ticks: { color: 'rgba(255,255,255,0.65)' }, grid: { color: 'rgba(255,255,255,0.06)' } },
-          },
-        },
-      };
-
-      if (componentsChart) componentsChart.destroy();
-      componentsChart = new Chart(ctx, config);
     }
 
     async function loadResultsSummaryTable() {
@@ -467,7 +382,7 @@
       const hint = document.getElementById('timelineHint');
       hint.textContent = 'Loading…';
       const data = await fetchJson(withRunId('/api/ids-timeline'));
-      hint.textContent = data.ids_score?.length ? `Points: ${data.ids_score.length}` : 'No data';
+      hint.textContent = data.base_ids?.length ? `Points: ${data.base_ids.length}` : 'No data';
 
       const ctx = document.getElementById('idsTimelineChart');
       const config = {
@@ -477,7 +392,7 @@
           datasets: [
             {
               label: 'Base IDS',
-              data: data.ids_score,
+              data: data.base_ids,
               borderWidth: 2,
               borderColor: 'rgba(124, 58, 237, 0.95)',
               backgroundColor: 'rgba(124, 58, 237, 0.12)',
@@ -487,7 +402,7 @@
             },
             {
               label: 'Mahalanobis Distance',
-              data: data.mahalanobis_distance || [],
+              data: data.mahalanobis,
               borderWidth: 2,
               borderColor: 'rgba(59, 130, 246, 0.95)',
               backgroundColor: 'rgba(59, 130, 246, 0.12)',
@@ -496,21 +411,21 @@
               pointRadius: 0,
             },
             {
-              label: 'KL Divergence',
-              data: data.kl_divergence || [],
+              label: 'Jensen–Shannon Divergence',
+              data: data.js_divergence,
               borderWidth: 2,
-              borderColor: 'rgba(245, 158, 11, 0.95)',
-              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              borderColor: 'rgba(34, 197, 94, 0.95)',
+              backgroundColor: 'rgba(34, 197, 94, 0.12)',
               fill: false,
               tension: 0.25,
               pointRadius: 0,
             },
             {
-              label: 'Jensen-Shannon Divergence',
-              data: data.js_divergence || [],
+              label: 'Tool Frequency Drift',
+              data: data.tool_frequency,
               borderWidth: 2,
-              borderColor: 'rgba(34, 197, 94, 0.95)',
-              backgroundColor: 'rgba(34, 197, 94, 0.12)',
+              borderColor: 'rgba(245, 158, 11, 0.95)',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
               fill: false,
               tension: 0.25,
               pointRadius: 0,
@@ -531,9 +446,7 @@
         }
       };
 
-      if (timelineChart) {
-        timelineChart.destroy();
-      }
+      if (timelineChart) timelineChart.destroy();
       timelineChart = new Chart(ctx, config);
     }
 
@@ -544,7 +457,6 @@
         await loadHealth();
         await loadOverview();
         await loadTimeline();
-        await loadIdsComponents();
         await loadResultsSummaryTable();
         await loadCrossRunComparison();
       } catch (err) {
