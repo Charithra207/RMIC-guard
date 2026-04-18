@@ -190,10 +190,10 @@
       <div class="card chart-card">
         <div class="pad">
           <div class="card-title">
-            <h2>IDS Metrics Timeline — Base IDS · Mahalanobis · Jensen–Shannon · Tool Frequency</h2>
+            <h2>Seven-Metric IDS Timeline (Condition C — running score)</h2>
             <div class="hint" id="timelineHint">Loading…</div>
           </div>
-          <div class="chart-wrap">
+          <div class="chart-wrap" style="height: 380px;">
             <canvas id="idsTimelineChart"></canvas>
           </div>
           <div class="notice" id="statusBox" style="display:none;"></div>
@@ -381,67 +381,166 @@
     async function loadTimeline() {
       const hint = document.getElementById('timelineHint');
       hint.textContent = 'Loading…';
-      const data = await fetchJson(withRunId('/api/ids-timeline'));
-      hint.textContent = data.base_ids?.length ? `Points: ${data.base_ids.length}` : 'No data';
+      let data;
+      try {
+        data = await fetchJson(withRunId('/api/ids-components-timeline'));
+        if (!Array.isArray(data.labels) || data.labels.length === 0) {
+          data = await fetchJson(withRunId('/api/ids-timeline'));
+        }
+      } catch (_err) {
+        data = await fetchJson(withRunId('/api/ids-timeline'));
+      }
+      const labels = Array.isArray(data.labels) ? data.labels : [];
+      hint.textContent = labels.length ? `Points: ${labels.length} (Condition C)` : 'No data';
+
+      const runningAverage = (arr, n) => {
+        const out = [];
+        let sum = 0;
+        for (let i = 0; i < n; i += 1) {
+          const raw = arr?.[i];
+          const val = Number(raw ?? 0);
+          sum += Number.isFinite(val) ? val : 0;
+          out.push(Number((sum / (i + 1)).toFixed(4)));
+        }
+        return out;
+      };
+
+      const baseIds = runningAverage(data.base_ids, labels.length);
+      const mahalanobis = runningAverage(data.mahalanobis, labels.length);
+      const klDivergence = runningAverage(data.kl_divergence, labels.length);
+      const jsDivergence = runningAverage(data.js_divergence, labels.length);
+      const wasserstein = runningAverage(data.wasserstein, labels.length);
+      const hellinger = runningAverage(data.hellinger, labels.length);
+      const toolFrequency = runningAverage(data.tool_frequency, labels.length);
 
       const ctx = document.getElementById('idsTimelineChart');
       const config = {
         type: 'line',
         data: {
-          labels: data.labels,
+          labels,
           datasets: [
             {
               label: 'Base IDS',
-              data: data.base_ids,
-              borderWidth: 2,
+              data: baseIds,
+              borderWidth: 2.5,
               borderColor: 'rgba(124, 58, 237, 0.95)',
-              backgroundColor: 'rgba(124, 58, 237, 0.12)',
+              backgroundColor: 'rgba(124, 58, 237, 0.06)',
               fill: false,
-              tension: 0.25,
+              tension: 0.3,
               pointRadius: 0,
+              pointHoverRadius: 4,
+              borderDash: [],
             },
             {
-              label: 'Mahalanobis Distance',
-              data: data.mahalanobis,
-              borderWidth: 2,
+              label: 'Mahalanobis',
+              data: mahalanobis,
+              borderWidth: 1.8,
               borderColor: 'rgba(59, 130, 246, 0.95)',
-              backgroundColor: 'rgba(59, 130, 246, 0.12)',
+              backgroundColor: 'rgba(59, 130, 246, 0.06)',
               fill: false,
-              tension: 0.25,
+              tension: 0.3,
               pointRadius: 0,
+              pointHoverRadius: 4,
             },
             {
-              label: 'Jensen–Shannon Divergence',
-              data: data.js_divergence,
-              borderWidth: 2,
-              borderColor: 'rgba(34, 197, 94, 0.95)',
-              backgroundColor: 'rgba(34, 197, 94, 0.12)',
+              label: 'KL Divergence',
+              data: klDivergence,
+              borderWidth: 1.8,
+              borderColor: 'rgba(245, 158, 11, 0.95)',
+              backgroundColor: 'rgba(245, 158, 11, 0.06)',
               fill: false,
-              tension: 0.25,
+              tension: 0.3,
               pointRadius: 0,
+              pointHoverRadius: 4,
+              borderDash: [4, 2],
+            },
+            {
+              label: 'Jensen–Shannon',
+              data: jsDivergence,
+              borderWidth: 1.8,
+              borderColor: 'rgba(34, 197, 94, 0.95)',
+              backgroundColor: 'rgba(34, 197, 94, 0.06)',
+              fill: false,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+            },
+            {
+              label: 'Wasserstein',
+              data: wasserstein,
+              borderWidth: 1.8,
+              borderColor: 'rgba(239, 68, 68, 0.90)',
+              backgroundColor: 'rgba(239, 68, 68, 0.06)',
+              fill: false,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              borderDash: [4, 2],
+            },
+            {
+              label: 'Hellinger',
+              data: hellinger,
+              borderWidth: 1.8,
+              borderColor: 'rgba(236, 72, 153, 0.90)',
+              backgroundColor: 'rgba(236, 72, 153, 0.06)',
+              fill: false,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 4,
             },
             {
               label: 'Tool Frequency Drift',
-              data: data.tool_frequency,
-              borderWidth: 2,
-              borderColor: 'rgba(245, 158, 11, 0.95)',
-              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              data: toolFrequency,
+              borderWidth: 1.8,
+              borderColor: 'rgba(20, 184, 166, 0.90)',
+              backgroundColor: 'rgba(20, 184, 166, 0.06)',
               fill: false,
-              tension: 0.25,
+              tension: 0.3,
               pointRadius: 0,
+              pointHoverRadius: 4,
+              borderDash: [4, 2],
             }
           ]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { labels: { color: 'rgba(255,255,255,0.85)' } },
-            tooltip: { mode: 'index', intersect: false }
+            legend: {
+              labels: {
+                color: 'rgba(255,255,255,0.85)',
+                usePointStyle: true,
+                pointStyleWidth: 16,
+                padding: 14,
+                font: { size: 12 },
+              },
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label(context) {
+                  const value = context.parsed?.y;
+                  if (value === null || value === undefined || Number.isNaN(value)) {
+                    return ` ${context.dataset.label}: N/A`;
+                  }
+                  return ` ${context.dataset.label}: ${Number(value).toFixed(4)}`;
+                },
+              },
+            },
           },
           scales: {
-            x: { ticks: { color: 'rgba(255,255,255,0.65)', maxRotation: 0 }, grid: { color: 'rgba(255,255,255,0.06)' } },
-            y: { min: 0, max: 1, ticks: { color: 'rgba(255,255,255,0.65)' }, grid: { color: 'rgba(255,255,255,0.06)' } }
+            x: {
+              ticks: { color: 'rgba(255,255,255,0.65)', maxRotation: 0, maxTicksLimit: 10, font: { size: 11 } },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+            },
+            y: {
+              min: 0,
+              max: 1,
+              ticks: { color: 'rgba(255,255,255,0.65)', stepSize: 0.1, font: { size: 11 } },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+            },
           }
         }
       };
