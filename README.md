@@ -122,12 +122,9 @@ APIs:
 
 ## Experiment Exports
 
-After each full run, three export files are automatically written to `results/exports/`:
-- `{run_id}.csv` — all raw rows
-- `{run_id}.json` — raw rows + per-condition DSR/DDR/FPR summary
-- `{run_id}_summary.xlsx` — 4 sheets:
-  Sheet 1: raw_rows, Sheet 2: condition_metrics,
-  Sheet 3: role_dsr_condition_c, Sheet 4: ablation
+After each full run, one export file is automatically written to `results/exports/`:
+- `{run_id}.csv` — all 1300 raw rows with all 22 columns
+  Open directly in Excel, load in pandas, or use with any stats tool.
 
 ## IDS Metrics (7 Independent Signals)
 
