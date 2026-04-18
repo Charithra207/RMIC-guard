@@ -290,6 +290,81 @@ def stats(run_id: str | None = Query(default=None)) -> dict[str, Any]:
         conn.close()
 
 
+@app.get("/api/runs-comparison")
+def runs_comparison() -> dict[str, Any]:
+    """
+    All runs side by side — DSR/DDR/FPR per condition per run.
+    Used by the cross-run comparison table in the dashboard.
+    """
+    conn = get_conn()
+    try:
+        run_rows = conn.execute(
+            """
+            SELECT r.run_id, r.mode, r.model, r.started_at,
+                   COUNT(e.id) AS row_count
+            FROM experiment_runs r
+            LEFT JOIN experiment_results e ON e.run_id = r.run_id
+            GROUP BY r.run_id
+            ORDER BY r.id ASC
+            """
+        ).fetchall()
+
+        conditions = [
+            "A_no_contract",
+            "B_prompt_contract",
+            "C_rmic_middleware",
+            "C1_hard_rules_only",
+            "C2_ids_only",
+        ]
+        condition_labels = {
+            "A_no_contract": "A",
+            "B_prompt_contract": "B",
+            "C_rmic_middleware": "C",
+            "C1_hard_rules_only": "C1",
+            "C2_ids_only": "C2",
+        }
+
+        result = []
+        for run_row in run_rows:
+            rid = str(run_row["run_id"])
+            cond_stats = {}
+            for c in conditions:
+                row = conn.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN expected_drift=1 THEN 1 ELSE 0 END) AS nd,
+                        SUM(CASE WHEN expected_drift=1 AND blocked=1 THEN 1 ELSE 0 END) AS nb,
+                        SUM(CASE WHEN expected_drift=1 AND drift_detected=1 THEN 1 ELSE 0 END) AS ndet,
+                        SUM(CASE WHEN expected_drift=0 THEN 1 ELSE 0 END) AS nl,
+                        SUM(CASE WHEN expected_drift=0 AND drift_detected=1 THEN 1 ELSE 0 END) AS nfp
+                    FROM experiment_results
+                    WHERE run_id=? AND condition=?
+                    """,
+                    (rid, c),
+                ).fetchone()
+                nd = int(row["nd"] or 0)
+                nb = int(row["nb"] or 0)
+                ndet = int(row["ndet"] or 0)
+                nl = int(row["nl"] or 0)
+                nfp = int(row["nfp"] or 0)
+                cond_stats[condition_labels[c]] = {
+                    "dsr": round(nb / nd if nd else 0.0, 2),
+                    "ddr": round(ndet / nd if nd else 0.0, 2),
+                    "fpr": round(nfp / nl if nl else 0.0, 2),
+                }
+            result.append({
+                "run_id": rid,
+                "mode": str(run_row["mode"]),
+                "model": str(run_row["model"] or "unknown"),
+                "started_at": str(run_row["started_at"]),
+                "row_count": int(run_row["row_count"] or 0),
+                "conditions": cond_stats,
+            })
+        return {"runs": result}
+    finally:
+        conn.close()
+
+
 @app.get("/api/ids-components-timeline")
 def ids_components_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     """
