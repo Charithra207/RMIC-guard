@@ -190,7 +190,7 @@
       <div class="card chart-card">
         <div class="pad">
           <div class="card-title">
-            <h2>Seven-Metric IDS Timeline (Condition C — running score)</h2>
+            <h2>All 7 IDS Metrics — Running Average (all conditions)</h2>
             <div class="hint" id="timelineHint">Loading…</div>
           </div>
           <div class="chart-wrap" style="height: 380px;">
@@ -381,126 +381,37 @@
     async function loadTimeline() {
       const hint = document.getElementById('timelineHint');
       hint.textContent = 'Loading…';
-      let data;
-      try {
-        data = await fetchJson(withRunId('/api/ids-components-timeline'));
-        if (!Array.isArray(data.labels) || data.labels.length === 0) {
-          data = await fetchJson(withRunId('/api/ids-timeline'));
-        }
-      } catch (_err) {
-        data = await fetchJson(withRunId('/api/ids-timeline'));
-      }
-      const labels = Array.isArray(data.labels) ? data.labels : [];
-      hint.textContent = labels.length ? `Points: ${labels.length} (Condition C)` : 'No data';
-
-      const runningAverage = (arr, n) => {
-        const out = [];
-        let sum = 0;
-        for (let i = 0; i < n; i += 1) {
-          const raw = arr?.[i];
-          const val = Number(raw ?? 0);
-          sum += Number.isFinite(val) ? val : 0;
-          out.push(Number((sum / (i + 1)).toFixed(4)));
-        }
-        return out;
-      };
-
-      const baseIds = runningAverage(data.base_ids, labels.length);
-      const mahalanobis = runningAverage(data.mahalanobis, labels.length);
-      const klDivergence = runningAverage(data.kl_divergence, labels.length);
-      const jsDivergence = runningAverage(data.js_divergence, labels.length);
-      const wasserstein = runningAverage(data.wasserstein, labels.length);
-      const hellinger = runningAverage(data.hellinger, labels.length);
-      const toolFrequency = runningAverage(data.tool_frequency, labels.length);
+      const data = await fetchJson(withRunId('/api/ids-timeline'));
+      const n = data.labels?.length ?? 0;
+      hint.textContent = n ? `Points: ${n} (all conditions)` : 'No data yet';
 
       const ctx = document.getElementById('idsTimelineChart');
+      const mk = (label, arr, color, dash = []) => ({
+        label,
+        data: arr || [],
+        borderWidth: label === 'Base IDS' ? 2.5 : 1.8,
+        borderColor: color,
+        backgroundColor: color.replace('0.95', '0.05').replace('0.90', '0.05'),
+        fill: false,
+        tension: 0.3,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        borderDash: dash,
+      });
+
       const config = {
         type: 'line',
         data: {
-          labels,
+          labels: data.labels || [],
           datasets: [
-            {
-              label: 'Base IDS',
-              data: baseIds,
-              borderWidth: 2.5,
-              borderColor: 'rgba(124, 58, 237, 0.95)',
-              backgroundColor: 'rgba(124, 58, 237, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-              borderDash: [],
-            },
-            {
-              label: 'Mahalanobis',
-              data: mahalanobis,
-              borderWidth: 1.8,
-              borderColor: 'rgba(59, 130, 246, 0.95)',
-              backgroundColor: 'rgba(59, 130, 246, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-            },
-            {
-              label: 'KL Divergence',
-              data: klDivergence,
-              borderWidth: 1.8,
-              borderColor: 'rgba(245, 158, 11, 0.95)',
-              backgroundColor: 'rgba(245, 158, 11, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-              borderDash: [4, 2],
-            },
-            {
-              label: 'Jensen–Shannon',
-              data: jsDivergence,
-              borderWidth: 1.8,
-              borderColor: 'rgba(34, 197, 94, 0.95)',
-              backgroundColor: 'rgba(34, 197, 94, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-            },
-            {
-              label: 'Wasserstein',
-              data: wasserstein,
-              borderWidth: 1.8,
-              borderColor: 'rgba(239, 68, 68, 0.90)',
-              backgroundColor: 'rgba(239, 68, 68, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-              borderDash: [4, 2],
-            },
-            {
-              label: 'Hellinger',
-              data: hellinger,
-              borderWidth: 1.8,
-              borderColor: 'rgba(236, 72, 153, 0.90)',
-              backgroundColor: 'rgba(236, 72, 153, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-            },
-            {
-              label: 'Tool Frequency Drift',
-              data: toolFrequency,
-              borderWidth: 1.8,
-              borderColor: 'rgba(20, 184, 166, 0.90)',
-              backgroundColor: 'rgba(20, 184, 166, 0.06)',
-              fill: false,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 4,
-              borderDash: [4, 2],
-            }
-          ]
+            mk('Base IDS',            data.base_ids,      'rgba(124, 58, 237, 0.95)'),
+            mk('Mahalanobis',         data.mahalanobis,   'rgba(59, 130, 246, 0.95)'),
+            mk('KL Divergence',       data.kl_divergence, 'rgba(245, 158, 11, 0.95)',  [4, 2]),
+            mk('Jensen–Shannon',      data.js_divergence, 'rgba(34, 197, 94, 0.95)'),
+            mk('Wasserstein',         data.wasserstein,   'rgba(239, 68, 68, 0.90)',   [4, 2]),
+            mk('Hellinger',           data.hellinger,     'rgba(236, 72, 153, 0.90)'),
+            mk('Tool Frequency Drift',data.tool_frequency,'rgba(20, 184, 166, 0.90)',  [4, 2]),
+          ],
         },
         options: {
           responsive: true,
@@ -520,12 +431,10 @@
               mode: 'index',
               intersect: false,
               callbacks: {
-                label(context) {
-                  const value = context.parsed?.y;
-                  if (value === null || value === undefined || Number.isNaN(value)) {
-                    return ` ${context.dataset.label}: N/A`;
-                  }
-                  return ` ${context.dataset.label}: ${Number(value).toFixed(4)}`;
+                label(ctx) {
+                  const v = ctx.parsed?.y;
+                  if (v == null || isNaN(v)) return ` ${ctx.dataset.label}: N/A`;
+                  return ` ${ctx.dataset.label}: ${v.toFixed(4)}`;
                 },
               },
             },
@@ -533,16 +442,15 @@
           scales: {
             x: {
               ticks: { color: 'rgba(255,255,255,0.65)', maxRotation: 0, maxTicksLimit: 10, font: { size: 11 } },
-              grid: { color: 'rgba(255,255,255,0.05)' },
+              grid:  { color: 'rgba(255,255,255,0.05)' },
             },
             y: {
-              min: 0,
-              max: 1,
+              min: 0, max: 1,
               ticks: { color: 'rgba(255,255,255,0.65)', stepSize: 0.1, font: { size: 11 } },
-              grid: { color: 'rgba(255,255,255,0.06)' },
+              grid:  { color: 'rgba(255,255,255,0.06)' },
             },
-          }
-        }
+          },
+        },
       };
 
       if (timelineChart) timelineChart.destroy();
