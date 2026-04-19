@@ -162,12 +162,27 @@ class EnforcementEngine:
         else:
             hard = _check_hard_rules(c, plan)
         if hard:
+            # Compute IDS even on hard-rule block so the dashboard always has
+            # real embedding scores for every Condition C row.
+            ids_score_measured = 0.0
+            ids_components_measured: dict[str, float] | None = None
+            if c.anchor_embedding and enforcement_mode not in ("hard_rules_only",):
+                try:
+                    ids_score_measured, ids_components_measured = _ids_on_plan(
+                        c,
+                        plan,
+                        recent_ids,
+                        tool_call_history=tool_call_history,
+                    )
+                except Exception:
+                    ids_score_measured = 0.0
+                    ids_components_measured = None
             self._log(
                 AuditEntry(
                     timestamp=datetime.now(timezone.utc).isoformat(),
                     agent_id=c.agent_id,
                     input_hash=hash_text(plan.raw_text),
-                    ids_score=0.0,
+                    ids_score=ids_score_measured,
                     drift_type=drift_type,
                     drift_velocity=None,
                     decision="BLOCK",
@@ -178,9 +193,9 @@ class EnforcementEngine:
             )
             return EnforcementOutcome(
                 decision="BLOCK",
-                ids_score=0.0,
+                ids_score=ids_score_measured,
                 drift_velocity=0.0,
-                ids_components=None,
+                ids_components=ids_components_measured,
                 hard_rule_violation=hard,
                 recovery_system_message=None,
                 recovery_user_message=None,
