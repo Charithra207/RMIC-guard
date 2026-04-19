@@ -148,6 +148,7 @@ def ids_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
             f"""
             SELECT
                 created_at,
+                condition,
                 COALESCE(base_ids, ids_score, 0.0)  AS base_ids,
                 COALESCE(mahalanobis, 0.0)           AS mahalanobis,
                 COALESCE(kl_divergence, 0.0)         AS kl_divergence,

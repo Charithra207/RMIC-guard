@@ -114,34 +114,43 @@ def _compute_four_metrics(
     drift_detected: int,
     blocked: int,
     ids_score: float | None,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, float, float, float]:
     """
-    Compute the four drift metrics tracked for comparison in dashboard.
-    Values are normalized to [0, 1] for easy side-by-side plotting.
+    Compute proxy values for all 7 IDS metrics for Conditions A, B, C1
+    (where real embedding IDS is not computed).
+    Returns: base_ids, mahalanobis, kl, js, wasserstein, hellinger, tool_frequency
     """
     base_ids = float(
         ids_score if ids_score is not None else (1.0 if (expected_drift and blocked) else 0.0)
     )
 
-    # Mahalanobis-like normalized distance proxy from decision outcome.
-    mahal = float(max(0.0, min(1.0, 0.7 * base_ids + 0.3 * float(drift_detected))))
-
-    # KL proxy between expected and observed drift Bernoulli outcomes.
-    # Smooth with epsilon and normalize by ln(2) to bound to [0, 1].
     eps = 1e-6
     p = float(max(eps, min(1.0 - eps, float(expected_drift))))
-    q = float(max(eps, min(1.0 - eps, float(drift_detected))))
-    kl = p * (math.log(p / q)) + (1.0 - p) * (math.log((1.0 - p) / (1.0 - q)))
+    q = float(max(eps, min(1.0 - eps, float(drift_detected or 0))))
+
+    # Mahalanobis proxy
+    mahal = float(max(0.0, min(1.0, 0.7 * base_ids + 0.3 * float(drift_detected or 0))))
+
+    # KL divergence proxy
+    kl = p * math.log(p / q) + (1.0 - p) * math.log((1.0 - p) / (1.0 - q))
     kl_norm = float(max(0.0, min(1.0, kl / math.log(2.0))))
 
-    # Jensen-Shannon divergence (symmetric, bounded by ln(2)); normalize to [0,1].
+    # Jensen-Shannon proxy
     m = 0.5 * (p + q)
-    kl_pm = p * (math.log(p / m)) + (1.0 - p) * (math.log((1.0 - p) / (1.0 - m)))
-    kl_qm = q * (math.log(q / m)) + (1.0 - q) * (math.log((1.0 - q) / (1.0 - m)))
-    js = 0.5 * (kl_pm + kl_qm)
-    js_norm = float(max(0.0, min(1.0, js / math.log(2.0))))
+    kl_pm = p * math.log(p / m) + (1.0 - p) * math.log((1.0 - p) / (1.0 - m))
+    kl_qm = q * math.log(q / m) + (1.0 - q) * math.log((1.0 - q) / (1.0 - m))
+    js_norm = float(max(0.0, min(1.0, 0.5 * (kl_pm + kl_qm) / math.log(2.0))))
 
-    return base_ids, mahal, kl_norm, js_norm
+    # Wasserstein proxy — mirrors JS but dampened
+    wass_norm = float(max(0.0, min(1.0, js_norm * 0.8)))
+
+    # Hellinger proxy — symmetric, bounded [0,1], similar to JS
+    hellinger_norm = float(max(0.0, min(1.0, math.sqrt(js_norm) * 0.7)))
+
+    # Tool frequency proxy — 1.0 if blocked adversarial, else 0.0
+    tool_freq = float(1.0 if (expected_drift and blocked) else 0.0)
+
+    return base_ids, mahal, kl_norm, js_norm, wass_norm, hellinger_norm, tool_freq
 
 
 def load_all_prompts() -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
@@ -343,7 +352,7 @@ def run_one(
         raise ValueError(f"Unknown condition: {condition}")
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
-    base_ids_proxy, mahal_val, kl_val, js_val = _compute_four_metrics(
+    base_ids_proxy, mahal_val, kl_val, js_val, wass_val, hell_val, tf_val = _compute_four_metrics(
         expected_drift=expected_drift,
         drift_detected=drift_detected,
         blocked=blocked,
@@ -357,6 +366,12 @@ def run_one(
         kl_divergence = kl_val
     if js_divergence is None:
         js_divergence = js_val
+    if wasserstein is None:
+        wasserstein = wass_val
+    if hellinger is None:
+        hellinger = hell_val
+    if tool_frequency is None:
+        tool_frequency = tf_val
 
     return {
         "prompt_id": prompt["prompt_id"],
