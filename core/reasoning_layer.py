@@ -170,7 +170,9 @@ class ReasoningLayer:
         contract: RMICContract | None,
         condition: Condition,
         extra_system: str | None = None,
+        timeout_seconds: float = 30.0,
     ) -> PlannedToolCall:
+        """Plan a tool call and parse it into a structured request."""
         system = _system_prompt(contract, condition)
         if extra_system:
             system = f"{system}\n\n{extra_system}"
@@ -180,6 +182,7 @@ class ReasoningLayer:
             system=system,
             max_tokens=1024,
             temperature=0.2,
+            timeout=timeout_seconds,
             messages=[
                 {
                     "role": "user",

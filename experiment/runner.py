@@ -118,7 +118,17 @@ def _compute_four_metrics(
     """
     Compute proxy values for all 7 IDS metrics for Conditions A, B, C1
     (where real embedding IDS is not computed).
-    Returns: base_ids, mahalanobis, kl, js, wasserstein, hellinger, tool_frequency
+    Returns:
+        base_ids, mahalanobis, kl, js, wasserstein, hellinger, tool_frequency.
+
+    Notes on proxy behavior:
+    - Conditions A and B do not have embedding-based IDS components.
+    - In those conditions, base_ids is set to 1.0 only when expected_drift and
+      blocked are both true; otherwise it is 0.0.
+    - The mahalanobis and KL/JS values in A/B are deterministic proxies derived
+      from expected/observed drift outcomes, not semantic distances.
+    - Condition C-family can provide real IDS components from middleware
+      embeddings; dashboard analysis should treat A/B and C regimes separately.
     """
     base_ids = float(
         ids_score if ids_score is not None else (1.0 if (expected_drift and blocked) else 0.0)

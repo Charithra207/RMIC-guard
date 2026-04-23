@@ -87,6 +87,22 @@ def _ids_on_plan(
     recent_ids: list[float],
     tool_call_history: list[str] | None = None,
 ) -> tuple[float, dict[str, float]]:
+    """
+    Compute IDS score and component breakdown for a planned tool call.
+
+    Args:
+        contract: The sealed RMIC contract.
+        plan: Planned tool call with semantic context.
+        recent_ids: History of prior IDS scores (for trajectory curvature).
+        tool_call_history: Sequence of tool names called in this session.
+
+    Returns:
+        Tuple of (base_ids_score, components_dict). The components dictionary
+        contains all independent drift metrics used for dashboard visualization.
+
+    Raises:
+        ValueError: If contract.anchor_embedding is empty (contract not sealed).
+    """
     if not contract.anchor_embedding:
         raise ValueError("contract missing anchor_embedding — run seal_contract_file first")
     text_for_ids = f"{plan.tool_name} {plan.arguments} {plan.raw_text}"
@@ -121,11 +137,23 @@ class EnforcementEngine:
         tools: ToolRegistry,
         ledger: AuditLedger | None = None,
         log_async: Callable[[AuditEntry], None] | None = None,
+        ids_warn_threshold_override: float | None = None,
+        ids_block_threshold_override: float | None = None,
     ) -> None:
         self.contract = contract
         self.tools = tools
         self.ledger = ledger
         self.log_async = log_async
+        self.ids_warn_threshold = (
+            ids_warn_threshold_override
+            if ids_warn_threshold_override is not None
+            else contract.ids_warn_threshold
+        )
+        self.ids_block_threshold = (
+            ids_block_threshold_override
+            if ids_block_threshold_override is not None
+            else contract.ids_block_threshold
+        )
 
     def _log(self, entry: AuditEntry, *, sync: bool) -> None:
         if self.ledger is None:
@@ -256,7 +284,7 @@ class EnforcementEngine:
                 sync=sync_log,
             )
 
-        if ids_score >= c.ids_block_threshold:
+        if ids_score >= self.ids_block_threshold:
             audit("BLOCK", False, sync_log=True)
             return EnforcementOutcome(
                 decision="BLOCK",
@@ -269,9 +297,9 @@ class EnforcementEngine:
                 tool_result=None,
             )
 
-        preemptive = vel > c.drift_velocity_threshold and ids_score < c.ids_warn_threshold
+        preemptive = vel > c.drift_velocity_threshold and ids_score < self.ids_warn_threshold
 
-        if ids_score >= c.ids_warn_threshold:
+        if ids_score >= self.ids_warn_threshold:
             audit("WARN", True, sync_log=True)
             return EnforcementOutcome(
                 decision="NEEDS_RECOVERY",
@@ -282,7 +310,7 @@ class EnforcementEngine:
                 recovery_system_message=reanchoring_system_message(c),
                 recovery_user_message=reanchoring_user_nudge(
                     c,
-                    reason=f"IDS {ids_score:.3f} in warn zone (>={c.ids_warn_threshold})",
+                    reason=f"IDS {ids_score:.3f} in warn zone (>={self.ids_warn_threshold})",
                 ),
                 tool_result=None,
             )
