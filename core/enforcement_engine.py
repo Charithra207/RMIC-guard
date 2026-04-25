@@ -137,23 +137,13 @@ class EnforcementEngine:
         tools: ToolRegistry,
         ledger: AuditLedger | None = None,
         log_async: Callable[[AuditEntry], None] | None = None,
-        ids_warn_threshold_override: float | None = None,
-        ids_block_threshold_override: float | None = None,
     ) -> None:
         self.contract = contract
         self.tools = tools
         self.ledger = ledger
         self.log_async = log_async
-        self.ids_warn_threshold = (
-            ids_warn_threshold_override
-            if ids_warn_threshold_override is not None
-            else contract.ids_warn_threshold
-        )
-        self.ids_block_threshold = (
-            ids_block_threshold_override
-            if ids_block_threshold_override is not None
-            else contract.ids_block_threshold
-        )
+        self.ids_warn_threshold = contract.ids_warn_threshold
+        self.ids_block_threshold = contract.ids_block_threshold
 
     def _log(self, entry: AuditEntry, *, sync: bool) -> None:
         if self.ledger is None:
