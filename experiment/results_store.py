@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import csv
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -197,5 +198,193 @@ def export_run_to_csv(conn: sqlite3.Connection, run_id: str, output_dir: Path | 
         writer.writerow(cols)
         for row in rows:
             writer.writerow([row[col] for col in cols])
+    return out_path
+
+
+def export_run_to_json(conn: sqlite3.Connection, run_id: str, output_dir: Path | str) -> Path:
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{run_id}.json"
+    cols = _result_columns(conn)
+    rows = conn.execute(
+        "SELECT * FROM experiment_results WHERE run_id = ? ORDER BY id ASC",
+        (run_id,),
+    ).fetchall()
+    serialisable = [{col: row[col] for col in cols} for row in rows]
+    payload = {"run_id": run_id, "row_count": len(serialisable), "results": serialisable}
+    with out_path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    return out_path
+
+
+def export_run_summary_excel(conn: sqlite3.Connection, run_id: str, output_dir: Path | str) -> Path:
+    """
+    Export a multi-sheet workbook with run-level summaries.
+    Sheets:
+      1) run_metadata
+      2) condition_summary
+      3) prompt_type_summary
+      4) metric_averages
+    """
+    try:
+        from openpyxl import Workbook
+    except ImportError as exc:
+        raise RuntimeError(
+            "openpyxl is required for Excel export. Install it with: pip install openpyxl"
+        ) from exc
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{run_id}.xlsx"
+
+    wb = Workbook()
+    ws_meta = wb.active
+    ws_meta.title = "run_metadata"
+    ws_cond = wb.create_sheet("condition_summary")
+    ws_prompt = wb.create_sheet("prompt_type_summary")
+    ws_metrics = wb.create_sheet("metric_averages")
+
+    run_row = conn.execute(
+        """
+        SELECT run_id, mode, model, started_at, completed_at
+        FROM experiment_runs
+        WHERE run_id = ?
+        LIMIT 1
+        """,
+        (run_id,),
+    ).fetchone()
+    totals = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS total_rows,
+            ROUND(AVG(score), 4) AS avg_score,
+            ROUND(AVG(latency_ms), 2) AS avg_latency_ms
+        FROM experiment_results
+        WHERE run_id = ?
+        """,
+        (run_id,),
+    ).fetchone()
+    ws_meta.append(["field", "value"])
+    ws_meta.append(["run_id", run_id])
+    ws_meta.append(["mode", str(run_row["mode"]) if run_row else "unknown"])
+    ws_meta.append(["model", str(run_row["model"]) if run_row and run_row["model"] else "unknown"])
+    ws_meta.append(["started_at", str(run_row["started_at"]) if run_row else ""])
+    ws_meta.append(["completed_at", str(run_row["completed_at"]) if run_row else ""])
+    ws_meta.append(["total_rows", int(totals["total_rows"] or 0)])
+    ws_meta.append(["avg_score", float(totals["avg_score"] or 0.0)])
+    ws_meta.append(["avg_latency_ms", float(totals["avg_latency_ms"] or 0.0)])
+
+    ws_cond.append(
+        [
+            "condition",
+            "expected_total",
+            "blocked_total",
+            "detected_total",
+            "legitimate_total",
+            "false_detect_total",
+            "dsr",
+            "ddr",
+            "fpr",
+        ]
+    )
+    cond_rows = conn.execute(
+        """
+        SELECT
+            condition,
+            SUM(CASE WHEN expected_drift=1 THEN 1 ELSE 0 END) AS expected_total,
+            SUM(CASE WHEN expected_drift=1 AND blocked=1 THEN 1 ELSE 0 END) AS blocked_total,
+            SUM(CASE WHEN expected_drift=1 AND drift_detected=1 THEN 1 ELSE 0 END) AS detected_total,
+            SUM(CASE WHEN expected_drift=0 THEN 1 ELSE 0 END) AS legitimate_total,
+            SUM(CASE WHEN expected_drift=0 AND drift_detected=1 THEN 1 ELSE 0 END) AS false_detect_total
+        FROM experiment_results
+        WHERE run_id = ?
+        GROUP BY condition
+        ORDER BY condition ASC
+        """,
+        (run_id,),
+    ).fetchall()
+    for row in cond_rows:
+        expected = int(row["expected_total"] or 0)
+        blocked = int(row["blocked_total"] or 0)
+        detected = int(row["detected_total"] or 0)
+        legit = int(row["legitimate_total"] or 0)
+        false_detect = int(row["false_detect_total"] or 0)
+        ws_cond.append(
+            [
+                str(row["condition"]),
+                expected,
+                blocked,
+                detected,
+                legit,
+                false_detect,
+                round(blocked / expected if expected else 0.0, 4),
+                round(detected / expected if expected else 0.0, 4),
+                round(false_detect / legit if legit else 0.0, 4),
+            ]
+        )
+
+    ws_prompt.append(
+        [
+            "prompt_type",
+            "count",
+            "blocked",
+            "detected",
+            "avg_score",
+            "avg_latency_ms",
+        ]
+    )
+    prompt_rows = conn.execute(
+        """
+        SELECT
+            prompt_type,
+            COUNT(*) AS count_total,
+            SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) AS blocked_total,
+            SUM(CASE WHEN drift_detected=1 THEN 1 ELSE 0 END) AS detected_total,
+            ROUND(AVG(score), 4) AS avg_score,
+            ROUND(AVG(latency_ms), 2) AS avg_latency_ms
+        FROM experiment_results
+        WHERE run_id = ?
+        GROUP BY prompt_type
+        ORDER BY prompt_type ASC
+        """,
+        (run_id,),
+    ).fetchall()
+    for row in prompt_rows:
+        ws_prompt.append(
+            [
+                str(row["prompt_type"]),
+                int(row["count_total"] or 0),
+                int(row["blocked_total"] or 0),
+                int(row["detected_total"] or 0),
+                float(row["avg_score"] or 0.0),
+                float(row["avg_latency_ms"] or 0.0),
+            ]
+        )
+
+    ws_metrics.append(["metric", "avg_value"])
+    metrics = conn.execute(
+        """
+        SELECT
+            ROUND(AVG(COALESCE(base_ids, ids_score, 0.0)), 4) AS avg_base_ids,
+            ROUND(AVG(COALESCE(mahalanobis, 0.0)), 4) AS avg_mahalanobis,
+            ROUND(AVG(COALESCE(kl_divergence, 0.0)), 4) AS avg_kl_divergence,
+            ROUND(AVG(COALESCE(js_divergence, 0.0)), 4) AS avg_js_divergence,
+            ROUND(AVG(COALESCE(wasserstein, 0.0)), 4) AS avg_wasserstein,
+            ROUND(AVG(COALESCE(hellinger, 0.0)), 4) AS avg_hellinger,
+            ROUND(AVG(COALESCE(tool_frequency, 0.0)), 4) AS avg_tool_frequency
+        FROM experiment_results
+        WHERE run_id = ?
+        """,
+        (run_id,),
+    ).fetchone()
+    ws_metrics.append(["base_ids", float(metrics["avg_base_ids"] or 0.0)])
+    ws_metrics.append(["mahalanobis", float(metrics["avg_mahalanobis"] or 0.0)])
+    ws_metrics.append(["kl_divergence", float(metrics["avg_kl_divergence"] or 0.0)])
+    ws_metrics.append(["js_divergence", float(metrics["avg_js_divergence"] or 0.0)])
+    ws_metrics.append(["wasserstein", float(metrics["avg_wasserstein"] or 0.0)])
+    ws_metrics.append(["hellinger", float(metrics["avg_hellinger"] or 0.0)])
+    ws_metrics.append(["tool_frequency", float(metrics["avg_tool_frequency"] or 0.0)])
+
+    wb.save(out_path)
     return out_path
 
