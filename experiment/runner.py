@@ -34,6 +34,8 @@ try:
         complete_run,
         create_run,
         export_run_to_csv,
+        export_run_to_json,
+        export_run_summary_excel,
         get_connection,
         init_db,
         insert_result,
@@ -44,6 +46,8 @@ except ModuleNotFoundError:
         complete_run,
         create_run,
         export_run_to_csv,
+        export_run_to_json,
+        export_run_summary_excel,
         get_connection,
         init_db,
         insert_result,
@@ -520,9 +524,13 @@ def run_experiment(
         conn.commit()
         export_dir = db_path.parent / "exports"
         csv_path = export_run_to_csv(conn, run_id, export_dir)
+        json_path = export_run_to_json(conn, run_id, export_dir)
+        xlsx_path = export_run_summary_excel(conn, run_id, export_dir)
         print()
         print(f"[Runner] Complete. Inserted: {inserted} rows. Errors: {errors}")
         print(f"[Runner] Export CSV: {csv_path}")
+        print(f"[Runner] Export JSON: {json_path}")
+        print(f"[Runner] Export XLSX: {xlsx_path}")
 
     finally:
         complete_run(conn, run_id=run_id)
