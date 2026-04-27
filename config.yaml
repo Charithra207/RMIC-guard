@@ -1,0 +1,17 @@
+model:
+  provider: anthropic
+  anthropic_model: claude-sonnet-4-6
+  openai_model: gpt-4o-mini
+
+ids:
+  weights:
+    role_distance: 0.4
+    semantic_grounding: 0.4
+    trajectory_curvature: 0.2
+  ablation_mode: full
+  trajectory_window_size: 5
+
+thresholds:
+  warn_threshold: 0.35
+  block_threshold: 0.60
+  velocity_threshold: 0.05

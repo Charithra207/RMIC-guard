@@ -31,6 +31,12 @@ class AuditEntry:
     decision: str
     contract_hash: str
     recovery_attempted: bool
+    role_distance: float | None = None
+    semantic_grounding: float | None = None
+    trajectory_curvature: float | None = None
+    failure_reason: str | None = None
+    false_positive: bool = False
+    false_negative: bool = False
 
 
 class AuditLedger:
@@ -92,9 +98,19 @@ def entry_from_mapping(m: Mapping[str, Any]) -> AuditEntry:
         agent_id=str(m["agent_id"]),
         input_hash=str(m["input_hash"]),
         ids_score=float(m["ids_score"]),
+        role_distance=None if m.get("role_distance") is None else float(m["role_distance"]),
+        semantic_grounding=(
+            None if m.get("semantic_grounding") is None else float(m["semantic_grounding"])
+        ),
+        trajectory_curvature=(
+            None if m.get("trajectory_curvature") is None else float(m["trajectory_curvature"])
+        ),
         drift_type=m.get("drift_type"),
         drift_velocity=None if m.get("drift_velocity") is None else float(m["drift_velocity"]),
         decision=str(m["decision"]),
+        failure_reason=(None if m.get("failure_reason") is None else str(m.get("failure_reason"))),
+        false_positive=bool(m.get("false_positive", False)),
+        false_negative=bool(m.get("false_negative", False)),
         contract_hash=str(m["contract_hash"]),
         recovery_attempted=bool(m["recovery_attempted"]),
     )

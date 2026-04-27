@@ -1,4 +1,4 @@
-"""Claude reasoning layer (Anthropic API) — contract rules only in Condition B."""
+"""Reasoning layer with minimal multi-model support."""
 
 from __future__ import annotations
 
@@ -6,15 +6,19 @@ import json
 import os
 import warnings
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from anthropic import Anthropic
 
 from core.contract_loader import RMICContract
+from utils.config import load_config
 
 __all__ = [
     "DEFAULT_ANTHROPIC_MODEL",
+    "DEFAULT_OPENAI_MODEL",
     "PlannedToolCall",
+    "OpenAIReasoning",
+    "ClaudeReasoning",
     "ReasoningLayer",
     "parse_planned_json",
 ]
@@ -34,6 +38,7 @@ class PlannedToolCall:
 
 # Default: current-generation Sonnet on the direct Anthropic API (not OpenRouter).
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
 # These IDs return 404 from api.anthropic.com — they were removed or replaced.
 _RETIRED_ANTHROPIC_MODELS: frozenset[str] = frozenset(
@@ -157,11 +162,60 @@ def parse_planned_json(text: str) -> PlannedToolCall:
 
 
 class ReasoningLayer:
-    """Anthropic Claude wrapper with experiment conditions A/B/C."""
+    """Compatibility wrapper selecting Claude or OpenAI backend."""
 
     def __init__(self, api_key: str | None = None) -> None:
+        cfg = load_config()
+        model_cfg = cfg.get("model", {})
+        provider = str(model_cfg.get("provider", "anthropic")).strip().lower()
+        if provider == "openai":
+            self._impl: ReasoningBackend = OpenAIReasoning(
+                api_key=api_key,
+                model_name=str(model_cfg.get("openai_model", DEFAULT_OPENAI_MODEL)),
+            )
+        else:
+            self._impl = ClaudeReasoning(
+                api_key=api_key,
+                model_name=str(model_cfg.get("anthropic_model", DEFAULT_ANTHROPIC_MODEL)),
+            )
+
+    def plan_tool_call(
+        self,
+        user_message: str,
+        *,
+        contract: RMICContract | None,
+        condition: Condition,
+        extra_system: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> PlannedToolCall:
+        return self._impl.plan_tool_call(
+            user_message,
+            contract=contract,
+            condition=condition,
+            extra_system=extra_system,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class ReasoningBackend(Protocol):
+    def plan_tool_call(
+        self,
+        user_message: str,
+        *,
+        contract: RMICContract | None,
+        condition: Condition,
+        extra_system: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> PlannedToolCall: ...
+
+
+class ClaudeReasoning:
+    """Anthropic Claude backend."""
+
+    def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_ANTHROPIC_MODEL) -> None:
         self._api_key = (api_key or _api_key()).strip()
         self._client = Anthropic(api_key=self._api_key)
+        self._model_name = model_name or _model_name()
 
     def plan_tool_call(
         self,
@@ -178,7 +232,7 @@ class ReasoningLayer:
             system = f"{system}\n\n{extra_system}"
 
         response = self._client.messages.create(
-            model=_model_name(),
+            model=self._model_name,
             system=system,
             max_tokens=1024,
             temperature=0.2,
@@ -196,4 +250,41 @@ class ReasoningLayer:
             if text:
                 parts.append(str(text))
         content = "\n".join(parts).strip()
+        return parse_planned_json(str(content))
+
+
+class OpenAIReasoning:
+    """OpenAI backend (minimal support)."""
+
+    def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_OPENAI_MODEL) -> None:
+        from openai import OpenAI
+
+        key = (api_key or os.environ.get("OPENAI_API_KEY") or "").strip()
+        if not key:
+            raise ValueError("OPENAI_API_KEY is not set")
+        self._client = OpenAI(api_key=key)
+        self._model_name = model_name
+
+    def plan_tool_call(
+        self,
+        user_message: str,
+        *,
+        contract: RMICContract | None,
+        condition: Condition,
+        extra_system: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> PlannedToolCall:
+        system = _system_prompt(contract, condition)
+        if extra_system:
+            system = f"{system}\n\n{extra_system}"
+        completion = self._client.chat.completions.create(
+            model=self._model_name,
+            temperature=0.2,
+            timeout=timeout_seconds,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"{user_message}\n\n{_user_instructions_for_plan()}"},
+            ],
+        )
+        content = (completion.choices[0].message.content or "").strip()
         return parse_planned_json(str(content))

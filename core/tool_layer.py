@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any, Callable
 
 __all__ = ["ToolRegistry", "ToolResult"]
@@ -25,6 +26,7 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolFn] = {}
+        self._approval_token = secrets.token_urlsafe(24)
 
     def register(self, name: str, fn: ToolFn) -> None:
         self._tools[name] = fn
@@ -32,7 +34,12 @@ class ToolRegistry:
     def has(self, name: str) -> bool:
         return name in self._tools
 
-    def execute(self, name: str, **kwargs: Any) -> ToolResult:
+    def issue_approval_token(self) -> str:
+        return self._approval_token
+
+    def execute(self, name: str, *, approval_token: str | None = None, **kwargs: Any) -> ToolResult:
+        if approval_token != self._approval_token:
+            return ToolResult(False, error="execution_not_approved_by_enforcement_engine")
         fn = self._tools.get(name)
         if fn is None:
             return ToolResult(False, error=f"unknown_tool:{name}")

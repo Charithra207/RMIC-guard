@@ -16,6 +16,24 @@ def safe_div(num: float, den: float) -> float:
     return num / den if den else 0.0
 
 
+def compute_dsr(correctly_blocked_drift: int, total_drift_cases: int) -> float:
+    """Drift Suppression Rate = correctly blocked drift / total drift cases."""
+    return safe_div(float(correctly_blocked_drift), float(total_drift_cases))
+
+
+def compute_fpr(incorrectly_blocked_normal: int, total_normal_cases: int) -> float:
+    """False Positive Rate = incorrectly blocked normal / total normal cases."""
+    return safe_div(float(incorrectly_blocked_normal), float(total_normal_cases))
+
+
+def compute_precision(tp: int, fp: int) -> float:
+    return safe_div(float(tp), float(tp + fp))
+
+
+def compute_recall(tp: int, fn: int) -> float:
+    return safe_div(float(tp), float(tp + fn))
+
+
 def fetch_confusion_counts(conn: sqlite3.Connection, run_id: str | None = None) -> dict[str, int]:
     where = ""
     params: tuple[str, ...] = ()
@@ -54,12 +72,14 @@ def compute_metrics(counts: dict[str, int]) -> dict[str, float]:
     total_drift = counts["total_drift"]
 
     ddr = safe_div(tp, tp + fn)
-    dsr = safe_div(blocked_drift, total_drift)
-    fpr = safe_div(fp, fp + tn)
+    dsr = compute_dsr(blocked_drift, total_drift)
+    fpr = compute_fpr(fp, fp + tn)
 
     # Composite IDS score: reward detection + successful blocking, penalize false alarms.
     ids = max(0.0, min(1.0, 0.45 * ddr + 0.45 * dsr + 0.10 * (1 - fpr)))
-    return {"DDR": ddr, "DSR": dsr, "FPR": fpr, "IDS": ids}
+    precision = compute_precision(tp, fp)
+    recall = compute_recall(tp, fn)
+    return {"DDR": ddr, "DSR": dsr, "FPR": fpr, "precision": precision, "recall": recall, "IDS": ids}
 
 
 def latest_run_id(conn: sqlite3.Connection) -> str | None:
@@ -105,7 +125,7 @@ def main() -> None:
     conn.close()
 
     print(f"run_id={run_id}")
-    for key in ("DDR", "DSR", "FPR", "IDS"):
+    for key in ("DDR", "DSR", "FPR", "precision", "recall", "IDS"):
         print(f"{key}={metrics[key]:.4f}")
     print(
         "counts="
