@@ -13,10 +13,11 @@ from typing import Any, Callable, Literal
 
 from core.audit_ledger import AuditEntry, AuditLedger, hash_text
 from core.contract_loader import RMICContract
-from core.ids_metric import compute_ids_components
+from core.ids_engine import IDSEngine
 from core.recovery_engine import reanchoring_system_message, reanchoring_user_nudge
 from core.reasoning_layer import PlannedToolCall
 from core.tool_layer import ToolRegistry, ToolResult
+from utils.config import load_config
 
 __all__ = ["EnforcementEngine", "EnforcementMode", "EnforcementOutcome"]
 
@@ -112,9 +113,9 @@ def _ids_on_plan(
         forbidden_topics.extend(contract.data_scope.prohibited)
     if contract.forbidden_actions:
         forbidden_topics.extend(contract.forbidden_actions)
-    components = compute_ids_components(
+    components = IDSEngine().score(
         text_for_ids,
-        contract.anchor_embedding,
+        anchor_embedding=contract.anchor_embedding,
         allowed_topics=allowed_topics,
         forbidden_topics=forbidden_topics,
         recent_ids=recent_ids,
@@ -142,8 +143,14 @@ class EnforcementEngine:
         self.tools = tools
         self.ledger = ledger
         self.log_async = log_async
-        self.ids_warn_threshold = contract.ids_warn_threshold
-        self.ids_block_threshold = contract.ids_block_threshold
+        self._tool_approval_token = tools.issue_approval_token()
+        cfg = load_config()
+        tcfg = cfg.get("thresholds", {})
+        self.ids_warn_threshold = float(tcfg.get("warn_threshold", contract.ids_warn_threshold))
+        self.ids_block_threshold = float(tcfg.get("block_threshold", contract.ids_block_threshold))
+        self.drift_velocity_threshold = float(
+            tcfg.get("velocity_threshold", contract.drift_velocity_threshold)
+        )
 
     def _log(self, entry: AuditEntry, *, sync: bool) -> None:
         if self.ledger is None:
@@ -201,9 +208,27 @@ class EnforcementEngine:
                     agent_id=c.agent_id,
                     input_hash=hash_text(plan.raw_text),
                     ids_score=ids_score_measured,
+                    role_distance=(
+                        None
+                        if not ids_components_measured
+                        else ids_components_measured.get("role_distance")
+                    ),
+                    semantic_grounding=(
+                        None
+                        if not ids_components_measured
+                        else ids_components_measured.get("semantic_grounding")
+                    ),
+                    trajectory_curvature=(
+                        None
+                        if not ids_components_measured
+                        else ids_components_measured.get("trajectory_curvature")
+                    ),
                     drift_type=drift_type,
                     drift_velocity=None,
                     decision="BLOCK",
+                    failure_reason=hard,
+                    false_positive=False,
+                    false_negative=False,
                     contract_hash=c.contract_hash,
                     recovery_attempted=False,
                 ),
@@ -231,6 +256,9 @@ class EnforcementEngine:
                     drift_type=drift_type,
                     drift_velocity=None,
                     decision="PASS",
+                    failure_reason=None,
+                    false_positive=False,
+                    false_negative=False,
                     contract_hash=c.contract_hash,
                     recovery_attempted=False,
                 ),
@@ -238,7 +266,11 @@ class EnforcementEngine:
             )
             tool_result: ToolResult | None = None
             if execute_tool:
-                tool_result = self.tools.execute(plan.tool_name, **plan.arguments)
+                tool_result = self.tools.execute(
+                    plan.tool_name,
+                    approval_token=self._tool_approval_token,
+                    **plan.arguments,
+                )
             return EnforcementOutcome(
                 decision="PASS",
                 ids_score=0.0,
@@ -265,9 +297,19 @@ class EnforcementEngine:
                     agent_id=c.agent_id,
                     input_hash=hash_text(plan.raw_text),
                     ids_score=ids_score,
+                    role_distance=ids_components.get("role_distance"),
+                    semantic_grounding=ids_components.get("semantic_grounding"),
+                    trajectory_curvature=ids_components.get("trajectory_curvature"),
                     drift_type=drift_type,
                     drift_velocity=vel,
                     decision=decision,
+                    failure_reason=(
+                        "ids_block_threshold_exceeded"
+                        if decision == "BLOCK"
+                        else ("ids_warn_threshold_reached" if decision == "WARN" else None)
+                    ),
+                    false_positive=False,
+                    false_negative=False,
                     contract_hash=c.contract_hash,
                     recovery_attempted=recovery_attempted,
                 ),
@@ -287,7 +329,7 @@ class EnforcementEngine:
                 tool_result=None,
             )
 
-        preemptive = vel > c.drift_velocity_threshold and ids_score < self.ids_warn_threshold
+        preemptive = vel > self.drift_velocity_threshold and ids_score < self.ids_warn_threshold
 
         if ids_score >= self.ids_warn_threshold:
             audit("WARN", True, sync_log=True)
@@ -311,7 +353,11 @@ class EnforcementEngine:
 
         tool_result: ToolResult | None = None
         if execute_tool:
-            tool_result = self.tools.execute(plan.tool_name, **plan.arguments)
+            tool_result = self.tools.execute(
+                plan.tool_name,
+                approval_token=self._tool_approval_token,
+                **plan.arguments,
+            )
 
         decision: Decision
         if final_decision == "PREEMPTIVE_WARN":

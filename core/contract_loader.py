@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+from utils.config import load_config
 
 __all__ = [
     "DataScope",
@@ -104,6 +105,8 @@ def _as_tuple_str(v: Any) -> tuple[str, ...]:
 
 
 def _contract_from_dict(data: dict[str, Any], *, require_hash_match: bool) -> RMICContract:
+    cfg = load_config()
+    tcfg = cfg.get("thresholds", {})
     stored_hash = data.get("contract_hash")
     if require_hash_match:
         if not stored_hash:
@@ -149,9 +152,18 @@ def _contract_from_dict(data: dict[str, Any], *, require_hash_match: bool) -> RM
         forbidden_actions=_as_tuple_str(data.get("forbidden_actions")),
         data_scope=DataScope.from_mapping(ds_raw),
         parameter_constraints=tuple(constraints),
-        ids_warn_threshold=float(data.get("ids_warn_threshold", 0.35)),
-        ids_block_threshold=float(data.get("ids_block_threshold", 0.60)),
-        drift_velocity_threshold=float(data.get("drift_velocity_threshold", 0.05)),
+        ids_warn_threshold=float(
+            data.get("ids_warn_threshold", data.get("warn_threshold", tcfg.get("warn_threshold", 0.35)))
+        ),
+        ids_block_threshold=float(
+            data.get("ids_block_threshold", data.get("block_threshold", tcfg.get("block_threshold", 0.60)))
+        ),
+        drift_velocity_threshold=float(
+            data.get(
+                "drift_velocity_threshold",
+                data.get("velocity_threshold", tcfg.get("velocity_threshold", 0.05)),
+            )
+        ),
         recovery_policy=str(data.get("recovery_policy", "re-anchor")),
         compliance_tags=_as_tuple_str(data.get("compliance_tags")),
         contract_version=str(data.get("contract_version", "1.0.0")),

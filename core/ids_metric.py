@@ -9,6 +9,7 @@ from scipy.stats import wasserstein_distance
 from scipy.special import softmax
 
 from core.embedder import cosine_similarity, embed_texts, normalise_l2
+from utils.config import load_config
 
 __all__ = [
     "compute_ids",
@@ -25,12 +26,36 @@ __all__ = [
     "tool_frequency_drift",
 ]
 
-# Base IDS = 0.4*Role + 0.4*Grounding + 0.2*Trajectory
-W_ROLE = 0.4
-W_GROUND = 0.4
-W_TRAJ = 0.2
-
 EPS = 1e-8
+
+
+def _ids_weights() -> tuple[float, float, float]:
+    cfg = load_config()
+    w = cfg.get("ids", {}).get("weights", {})
+    wr = float(w.get("role_distance", 0.4))
+    ws = float(w.get("semantic_grounding", 0.4))
+    wt = float(w.get("trajectory_curvature", 0.2))
+    total = wr + ws + wt
+    if total <= 0:
+        return 0.4, 0.4, 0.2
+    return wr / total, ws / total, wt / total
+
+
+def _ids_mode() -> str:
+    cfg = load_config()
+    mode = str(cfg.get("ids", {}).get("ablation_mode", "full")).strip().lower()
+    allowed = {
+        "full",
+        "role_distance_only",
+        "semantic_grounding_only",
+        "trajectory_only",
+    }
+    return mode if mode in allowed else "full"
+
+
+def _trajectory_window() -> int:
+    cfg = load_config()
+    return max(2, int(cfg.get("ids", {}).get("trajectory_window_size", 5)))
 
 
 def embedding_for_text(text: str, model_name: str | None = None) -> np.ndarray:
@@ -87,7 +112,7 @@ def trajectory_curvature(recent_ids: Sequence[float]) -> float:
     """
     if len(recent_ids) < 2:
         return 0.0
-    window = list(recent_ids)[-5:]
+    window = list(recent_ids)[-_trajectory_window():]
     deltas = [abs(window[i] - window[i - 1]) for i in range(1, len(window))]
     mean_delta = float(sum(deltas) / len(deltas))
     # Normalise: IDS components are in [0,1], so per-step delta in [0,1]; cap at 1
@@ -284,7 +309,16 @@ def compute_ids_components(
     rd = role_distance(agent_output, anchor_embedding, model_name=model_name)
     sg = semantic_grounding(agent_output, allowed, forbidden, model_name=model_name)
     tc = trajectory_curvature(recent_ids or ())
-    base_ids = W_ROLE * rd + W_GROUND * sg + W_TRAJ * tc
+    wr, ws, wt = _ids_weights()
+    mode = _ids_mode()
+    if mode == "role_distance_only":
+        base_ids = rd
+    elif mode == "semantic_grounding_only":
+        base_ids = sg
+    elif mode == "trajectory_only":
+        base_ids = tc
+    else:
+        base_ids = wr * rd + ws * sg + wt * tc
 
     mahal = mahalanobis_drift(
         agent_output,
@@ -347,8 +381,8 @@ def compute_ids(
     forbidden_topics: Sequence[str] | None = None,
     recent_ids: Sequence[float] | None = None,
     model_name: str | None = None,
-) -> float:
-    """Base IDS in [0, 1] (original cosine-based formula only)."""
+) -> dict[str, float]:
+    """Return IDS total and core components used in enforcement."""
     components = compute_ids_components(
         agent_output,
         anchor_embedding,
@@ -357,4 +391,9 @@ def compute_ids(
         recent_ids=recent_ids,
         model_name=model_name,
     )
-    return components["base_ids"]
+    return {
+        "ids_total": float(components["base_ids"]),
+        "role_distance": float(components["role_distance"]),
+        "semantic_grounding": float(components["semantic_grounding"]),
+        "trajectory_curvature": float(components["trajectory_curvature"]),
+    }
