@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from litellm import RateLimitError
+from dotenv import load_dotenv
 from utils.config import load_config
 from core.integrity_manifest import compute_contract_manifest, compute_prompt_manifest
 
@@ -112,6 +113,17 @@ def log_rate_limit_event(role, condition, prompt_id, provider, attempt, wait_sec
         f"  [RATE_LIMIT] {provider} throttled: "
         f"{role}/{condition}/{prompt_id} attempt={attempt} waiting={wait_seconds}s"
     )
+
+
+def _provider_key_status(provider: str) -> tuple[str, bool]:
+    env_name = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "groq": "GROQ_API_KEY",
+    }.get(provider, "")
+    if not env_name:
+        return "", False
+    return env_name, bool((os.environ.get(env_name) or "").strip())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -444,6 +456,8 @@ def run_experiment(
     db_path: Path,
     test_mode: bool = False,
     multi_model: bool = False,
+    provider: str | None = None,
+    providers_csv: str | None = None,
 ) -> tuple[str, int]:
     """
     Runs the full experiment.
@@ -471,11 +485,9 @@ def run_experiment(
     print(f"[Runner] Prompts per role per condition: {effective_per_role}")
     print(f"[Runner] Roles: {len(ROLES)}")
     print(f"[Runner] Conditions: {len(CONDITIONS)}")
-    total = len(ROLES) * len(CONDITIONS) * effective_per_role
-    print(f"[Runner] Total API calls: {total}")
-    print(f"[Runner] DB: {db_path}")
-    print()
 
+    load_dotenv(Path(".env"))
+    load_dotenv()
     cfg = load_config()
     seed = int(os.getenv("EXPERIMENT_SEED", "42"))
     random.seed(seed)
@@ -489,10 +501,35 @@ def run_experiment(
     run_id = make_run_id()
     conn = get_connection(db_path)
     init_db(conn)
-    providers = (
-        list(cfg.get("experiment", {}).get("providers_to_test", ["anthropic", "gemini", "groq"]))
-        if multi_model else [str(cfg.get("model", {}).get("provider", "anthropic"))]
-    )
+    if providers_csv:
+        providers = [p.strip().lower() for p in providers_csv.split(",") if p.strip()]
+    elif provider:
+        providers = [provider.strip().lower()]
+    else:
+        providers = (
+            list(cfg.get("experiment", {}).get("providers_to_test", ["anthropic", "gemini", "groq"]))
+            if multi_model else [str(cfg.get("model", {}).get("provider", "anthropic"))]
+        )
+    providers = [p for p in providers if p in {"anthropic", "gemini", "groq"}]
+    if not providers:
+        raise RuntimeError("No valid providers selected. Use anthropic, gemini, or groq.")
+
+    usable_providers: list[str] = []
+    for p in providers:
+        env_name, ok = _provider_key_status(p)
+        if ok:
+            usable_providers.append(p)
+            print(f"[Runner] Provider {p}: OK ({env_name} set)")
+        else:
+            print(f"[Runner] Provider {p}: SKIP ({env_name} missing)")
+    if not usable_providers:
+        raise RuntimeError("No provider API keys found. Check .env and shell environment variables.")
+    providers = usable_providers
+    total = len(ROLES) * len(CONDITIONS) * effective_per_role * len(providers)
+    print(f"[Runner] Total API calls: {total}")
+    print(f"[Runner] Providers: {', '.join(providers)}")
+    print(f"[Runner] DB: {db_path}")
+    print()
     create_run(
         conn,
         run_id=run_id,
@@ -509,6 +546,7 @@ def run_experiment(
         for provider in providers:
             os.environ["ACTIVE_PROVIDER"] = provider
             active_provider = provider
+            print(f"[Runner] Starting provider: {active_provider}")
             api_delay = get_api_delay(active_provider)
             full_model = cfg["model"].get(f"{active_provider}_model", active_provider)
             if active_provider == "gemini":
@@ -630,6 +668,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print provider-level DSR/DDR/FPR summary from latest run suffixes",
     )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="Run a single provider: anthropic | gemini | groq (overrides config provider).",
+    )
+    parser.add_argument(
+        "--providers",
+        type=str,
+        default=None,
+        help="Comma-separated providers, e.g. anthropic,gemini,groq (overrides --multi-model list).",
+    )
     return parser.parse_args()
 
 
@@ -639,6 +689,8 @@ def main() -> None:
         db_path=args.db_path,
         test_mode=args.test,
         multi_model=args.multi_model,
+        provider=args.provider,
+        providers_csv=args.providers,
     )
     if args.compare_providers:
         conn = get_connection(args.db_path)

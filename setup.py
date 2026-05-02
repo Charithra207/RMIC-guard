@@ -190,6 +190,14 @@ def main() -> None:
     except OSError as exc:
         err_line("results/ folder exists (created if missing)", str(exc))
 
+    # 7 — provider SDK/library availability
+    try:
+        import litellm  # noqa: F401
+
+        ok_line("LiteLLM is installed (required for Anthropic/Gemini/Groq backends)")
+    except Exception as exc:  # noqa: BLE001
+        err_line("LiteLLM dependency check", str(exc))
+
     # Summary
     total = passed + failed
     print()

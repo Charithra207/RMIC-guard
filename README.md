@@ -26,6 +26,8 @@ Create `.env` in the project root:
 ```
 ANTHROPIC_API_KEY=your_key_here
 ANTHROPIC_MODEL=claude-sonnet-4-6
+GEMINI_API_KEY=your_key_here
+GROQ_API_KEY=your_key_here
 ```
 
 ---
@@ -42,13 +44,31 @@ Expected: 6/6 checks pass.
 
 ## Run Experiment
 
-**Test first** (60 API calls, verify setup works):
+**Test one provider first** (60 API calls):
 
 ```powershell
-python -m experiment.runner --test
+python -m experiment.runner --test --provider anthropic
 ```
 
 Expected output: `rows_inserted=60`
+
+Test Gemini only:
+
+```powershell
+python -m experiment.runner --test --provider gemini
+```
+
+Test Groq only:
+
+```powershell
+python -m experiment.runner --test --provider groq
+```
+
+Run multi-model comparison (all available providers with keys):
+
+```powershell
+python -m experiment.runner --test --multi-model --compare-providers
+```
 
 **Full run** (1,300 API calls per run, ~$8–15 at Sonnet 4.6 pricing):
 
