@@ -1,23 +1,27 @@
-"""Reasoning layer with minimal multi-model support."""
+"""Reasoning layer with multi-provider LiteLLM support."""
 
 from __future__ import annotations
 
 import json
 import os
+import time
 import warnings
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from anthropic import Anthropic
+import litellm
+from litellm import RateLimitError
 
 from core.contract_loader import RMICContract
 from utils.config import load_config
 
 __all__ = [
     "DEFAULT_ANTHROPIC_MODEL",
-    "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_GEMINI_MODEL",
+    "DEFAULT_GROQ_MODEL",
     "PlannedToolCall",
-    "OpenAIReasoning",
+    "GeminiReasoning",
+    "GroqReasoning",
     "ClaudeReasoning",
     "ReasoningLayer",
     "parse_planned_json",
@@ -36,9 +40,46 @@ class PlannedToolCall:
     data_categories_accessed: tuple[str, ...] = ()
 
 
+class ResponseValidator:
+    """Validate and coerce model JSON output before creating PlannedToolCall."""
+
+    CORRECTION_PROMPT = """Your previous response was not valid JSON or had wrong format.
+You MUST respond with ONLY this JSON structure, no other text:
+{
+  "tool_name": "<exact tool name to call>",
+  "arguments": {},
+  "data_categories_accessed": []
+}
+Do not add explanations, markdown, or any text outside the JSON object."""
+
+    _BAD_TOOL_NAMES = {"refused", "refusal", "decline", "error", ""}
+
+    @classmethod
+    def validate_and_parse(cls, text: str, context: str) -> tuple[PlannedToolCall, bool]:
+        _ = context
+        plan = parse_planned_json(text)
+        if cls._is_valid(plan):
+            return plan, True
+        return PlannedToolCall("refused", {}, text, ()), False
+
+    @classmethod
+    def _is_valid(cls, plan: PlannedToolCall) -> bool:
+        if not isinstance(plan.tool_name, str):
+            return False
+        name = plan.tool_name.strip().lower()
+        if name in cls._BAD_TOOL_NAMES:
+            return False
+        if not isinstance(plan.arguments, dict):
+            return False
+        if not isinstance(plan.data_categories_accessed, tuple):
+            return False
+        return True
+
+
 # Default: current-generation Sonnet on the direct Anthropic API (not OpenRouter).
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_GEMINI_MODEL = "gemini/gemini-1.5-flash"
+DEFAULT_GROQ_MODEL = "groq/llama3-70b-8192"
 
 # These IDs return 404 from api.anthropic.com — they were removed or replaced.
 _RETIRED_ANTHROPIC_MODELS: frozenset[str] = frozenset(
@@ -162,16 +203,25 @@ def parse_planned_json(text: str) -> PlannedToolCall:
 
 
 class ReasoningLayer:
-    """Compatibility wrapper selecting Claude or OpenAI backend."""
+    """Compatibility wrapper selecting configured model backend."""
 
     def __init__(self, api_key: str | None = None) -> None:
         cfg = load_config()
         model_cfg = cfg.get("model", {})
         provider = str(model_cfg.get("provider", "anthropic")).strip().lower()
-        if provider == "openai":
-            self._impl: ReasoningBackend = OpenAIReasoning(
+        has_anthropic = bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip())
+        has_gemini = bool((os.environ.get("GEMINI_API_KEY") or "").strip())
+        if provider == "gemini" and (not has_gemini) and has_anthropic:
+            provider = "anthropic"
+        if provider == "gemini":
+            self._impl: ReasoningBackend = GeminiReasoning(
                 api_key=api_key,
-                model_name=str(model_cfg.get("openai_model", DEFAULT_OPENAI_MODEL)),
+                model_name=str(model_cfg.get("gemini_model", DEFAULT_GEMINI_MODEL)),
+            )
+        elif provider == "groq":
+            self._impl = GroqReasoning(
+                api_key=api_key,
+                model_name=str(model_cfg.get("groq_model", DEFAULT_GROQ_MODEL)),
             )
         else:
             self._impl = ClaudeReasoning(
@@ -210,12 +260,13 @@ class ReasoningBackend(Protocol):
 
 
 class ClaudeReasoning:
-    """Anthropic Claude backend."""
+    """Anthropic Claude backend through LiteLLM."""
 
     def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_ANTHROPIC_MODEL) -> None:
         self._api_key = (api_key or _api_key()).strip()
-        self._client = Anthropic(api_key=self._api_key)
         self._model_name = model_name or _model_name()
+        self._provider = "anthropic"
+        self._delay_seconds = 1.0
 
     def plan_tool_call(
         self,
@@ -226,44 +277,31 @@ class ClaudeReasoning:
         extra_system: str | None = None,
         timeout_seconds: float = 30.0,
     ) -> PlannedToolCall:
-        """Plan a tool call and parse it into a structured request."""
         system = _system_prompt(contract, condition)
         if extra_system:
             system = f"{system}\n\n{extra_system}"
-
-        response = self._client.messages.create(
-            model=self._model_name,
+        return _plan_with_litellm(
+            api_key=self._api_key,
+            provider=self._provider,
+            model_name=self._model_name,
             system=system,
-            max_tokens=1024,
-            temperature=0.2,
-            timeout=timeout_seconds,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{user_message}\n\n{_user_instructions_for_plan()}",
-                }
-            ],
+            user_message=user_message,
+            timeout_seconds=timeout_seconds,
+            delay_seconds=self._delay_seconds,
         )
-        parts: list[str] = []
-        for block in response.content:
-            text = getattr(block, "text", None)
-            if text:
-                parts.append(str(text))
-        content = "\n".join(parts).strip()
-        return parse_planned_json(str(content))
 
 
-class OpenAIReasoning:
-    """OpenAI backend (minimal support)."""
+class GeminiReasoning:
+    """Gemini backend through LiteLLM."""
 
-    def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_OPENAI_MODEL) -> None:
-        from openai import OpenAI
-
-        key = (api_key or os.environ.get("OPENAI_API_KEY") or "").strip()
+    def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_GEMINI_MODEL) -> None:
+        key = (api_key or os.environ.get("GEMINI_API_KEY") or "").strip()
         if not key:
-            raise ValueError("OPENAI_API_KEY is not set")
-        self._client = OpenAI(api_key=key)
-        self._model_name = model_name
+            raise ValueError("GEMINI_API_KEY is not set")
+        self._api_key = key
+        self._model_name = model_name or DEFAULT_GEMINI_MODEL
+        self._provider = "gemini"
+        self._delay_seconds = 4.0
 
     def plan_tool_call(
         self,
@@ -277,14 +315,119 @@ class OpenAIReasoning:
         system = _system_prompt(contract, condition)
         if extra_system:
             system = f"{system}\n\n{extra_system}"
-        completion = self._client.chat.completions.create(
-            model=self._model_name,
-            temperature=0.2,
-            timeout=timeout_seconds,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"{user_message}\n\n{_user_instructions_for_plan()}"},
-            ],
+        return _plan_with_litellm(
+            api_key=self._api_key,
+            provider=self._provider,
+            model_name=self._model_name,
+            system=system,
+            user_message=user_message,
+            timeout_seconds=timeout_seconds,
+            delay_seconds=self._delay_seconds,
         )
-        content = (completion.choices[0].message.content or "").strip()
-        return parse_planned_json(str(content))
+
+
+class GroqReasoning:
+    """Groq backend through LiteLLM."""
+
+    def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_GROQ_MODEL) -> None:
+        key = (api_key or os.environ.get("GROQ_API_KEY") or "").strip()
+        if not key:
+            raise ValueError("GROQ_API_KEY is not set")
+        self._api_key = key
+        self._model_name = model_name or DEFAULT_GROQ_MODEL
+        self._provider = "groq"
+        self._delay_seconds = 1.1
+
+    def plan_tool_call(
+        self,
+        user_message: str,
+        *,
+        contract: RMICContract | None,
+        condition: Condition,
+        extra_system: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> PlannedToolCall:
+        system = _system_prompt(contract, condition)
+        if extra_system:
+            system = f"{system}\n\n{extra_system}"
+        return _plan_with_litellm(
+            api_key=self._api_key,
+            provider=self._provider,
+            model_name=self._model_name,
+            system=system,
+            user_message=user_message,
+            timeout_seconds=timeout_seconds,
+            delay_seconds=self._delay_seconds,
+        )
+
+
+def _plan_with_litellm(
+    *,
+    api_key: str,
+    provider: str,
+    model_name: str,
+    system: str,
+    user_message: str,
+    timeout_seconds: float,
+    delay_seconds: float,
+) -> PlannedToolCall:
+    max_attempts = 3
+    backoff = 1.0
+    last_text = ""
+    for attempt in range(1, max_attempts + 1):
+        t0 = time.perf_counter()
+        try:
+            response = litellm.completion(
+                model=model_name,
+                api_key=api_key,
+                temperature=0.2,
+                max_tokens=1024,
+                timeout=timeout_seconds,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": f"{user_message}\n\n{_user_instructions_for_plan()}"},
+                ],
+            )
+            last_text = str(response.choices[0].message.content or "").strip()
+            usage = getattr(response, "usage", None)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            print(f"[MODEL] model={model_name} latency_ms={latency_ms} token_usage={usage}")
+
+            plan, ok = ResponseValidator.validate_and_parse(last_text, provider)
+            if ok:
+                time.sleep(delay_seconds)
+                return plan
+            print(f"[VALIDATION_FAIL] attempt={attempt} model={model_name}")
+
+            correction = litellm.completion(
+                model=model_name,
+                api_key=api_key,
+                temperature=0.2,
+                max_tokens=1024,
+                timeout=timeout_seconds,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": f"{user_message}\n\n{_user_instructions_for_plan()}"},
+                    {"role": "assistant", "content": last_text},
+                    {"role": "user", "content": ResponseValidator.CORRECTION_PROMPT},
+                ],
+            )
+            corrected_text = str(correction.choices[0].message.content or "").strip()
+            corrected_plan, corrected_ok = ResponseValidator.validate_and_parse(
+                corrected_text, f"{provider}:correction"
+            )
+            if corrected_ok:
+                time.sleep(delay_seconds)
+                return corrected_plan
+        except RateLimitError:
+            if attempt >= max_attempts:
+                break
+            wait_seconds = min(30.0, backoff)
+            time.sleep(wait_seconds)
+            backoff *= 2.0
+    return PlannedToolCall(
+        tool_name="refused",
+        arguments={},
+        raw_text=last_text,
+        data_categories_accessed=(),
+    )

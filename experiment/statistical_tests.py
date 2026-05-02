@@ -134,6 +134,14 @@ def compare_runs(conn) -> str:
             dsr_by_condition[c].append(n_blocked_drift / n_drift if n_drift else 0.0)
 
     lines: list[str] = []
+    hashes = conn.execute(
+        "SELECT DISTINCT COALESCE(manifest_hash, '') AS mh FROM experiment_runs WHERE mode='full'"
+    ).fetchall()
+    unique_hashes = {str(r["mh"]) for r in hashes if str(r["mh"])}
+    if len(unique_hashes) > 1:
+        lines.append(
+            "WARNING: Runs used different prompts/contracts - cross-run comparison may be invalid"
+        )
     lines.append("")
     lines.append("Across-run DSR variance (full mode runs):")
     lines.append("Condition | Mean DSR | Std DSR | N runs")

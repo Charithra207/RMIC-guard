@@ -76,6 +76,7 @@ def list_runs() -> dict[str, Any]:
         rows = conn.execute(
             """
             SELECT r.run_id, r.mode, r.model, r.started_at,
+                   COALESCE(MAX(e.provider), 'anthropic') AS provider,
                    COUNT(e.id) AS row_count
             FROM experiment_runs r
             LEFT JOIN experiment_results e ON e.run_id = r.run_id
@@ -90,6 +91,7 @@ def list_runs() -> dict[str, Any]:
                     "mode": str(r["mode"]),
                     "model": str(r["model"] or "unknown"),
                     "started_at": str(r["started_at"]),
+                    "provider": str(r["provider"] or "anthropic"),
                     "row_count": int(r["row_count"] or 0),
                 }
                 for r in rows
@@ -203,7 +205,10 @@ def ids_timeline(run_id: str | None = Query(default=None)) -> dict[str, Any]:
 
 
 @app.get("/api/stats")
-def stats(run_id: str | None = Query(default=None)) -> dict[str, Any]:
+def stats(
+    run_id: str | None = Query(default=None),
+    provider: str | None = Query(default=None),
+) -> dict[str, Any]:
     """
     Per-condition DSR, DDR, FPR — feeds the three-condition comparison bar chart.
     This is the most important endpoint — it is the proof that RMIC-Guard works.
@@ -216,8 +221,15 @@ def stats(run_id: str | None = Query(default=None)) -> dict[str, Any]:
     try:
         if run_id is None:
             run_id = get_latest_run_id(conn)
-        where_clause = "WHERE run_id = ?" if run_id else ""
-        params = (run_id,) if run_id else ()
+        clauses = []
+        params: list[Any] = []
+        if run_id:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if provider and provider.lower() != "all":
+            clauses.append("COALESCE(provider, 'anthropic') = ?")
+            params.append(provider.lower())
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = conn.execute(
             f"""
             SELECT
@@ -231,7 +243,7 @@ def stats(run_id: str | None = Query(default=None)) -> dict[str, Any]:
             {where_clause}
             GROUP BY condition
             """,
-            params,
+            tuple(params),
         ).fetchall()
 
         out: dict[str, dict[str, float | list[float]]] = {
@@ -268,6 +280,60 @@ def stats(run_id: str | None = Query(default=None)) -> dict[str, Any]:
             }
 
         return {"active_run_id": run_id, "stats": out}
+    finally:
+        conn.close()
+
+
+@app.get("/api/provider-comparison")
+def provider_comparison(run_id: str | None = Query(default=None)) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        if run_id is None:
+            run_id = get_latest_run_id(conn)
+        rows = conn.execute(
+            """
+            SELECT
+                COALESCE(provider, 'anthropic') AS provider,
+                condition,
+                AVG(COALESCE(base_ids, ids_score, 0.0)) AS avg_ids,
+                SUM(CASE WHEN expected_drift=1 THEN 1 ELSE 0 END) AS expected_total,
+                SUM(CASE WHEN expected_drift=1 AND blocked=1 THEN 1 ELSE 0 END) AS blocked_total,
+                SUM(CASE WHEN expected_drift=1 AND drift_detected=1 THEN 1 ELSE 0 END) AS detected_total,
+                SUM(CASE WHEN expected_drift=0 THEN 1 ELSE 0 END) AS legitimate_total,
+                SUM(CASE WHEN expected_drift=0 AND drift_detected=1 THEN 1 ELSE 0 END) AS false_detect_total
+            FROM experiment_results
+            WHERE run_id = ?
+            GROUP BY COALESCE(provider, 'anthropic'), condition
+            ORDER BY provider, condition
+            """,
+            (run_id,),
+        ).fetchall()
+        providers: dict[str, Any] = {}
+        for row in rows:
+            provider = str(row["provider"])
+            expected = int(row["expected_total"] or 0)
+            blocked = int(row["blocked_total"] or 0)
+            detected = int(row["detected_total"] or 0)
+            legit = int(row["legitimate_total"] or 0)
+            fp = int(row["false_detect_total"] or 0)
+            providers.setdefault(provider, {"conditions": {}, "avg_ids": []})
+            providers[provider]["conditions"][str(row["condition"])] = {
+                "dsr": round(blocked / expected if expected else 0.0, 4),
+                "ddr": round(detected / expected if expected else 0.0, 4),
+                "fpr": round(fp / legit if legit else 0.0, 4),
+            }
+            providers[provider]["avg_ids"].append(float(row["avg_ids"] or 0.0))
+        payload = []
+        for provider, data in providers.items():
+            ids_vals = data["avg_ids"]
+            payload.append(
+                {
+                    "provider": provider,
+                    "avg_ids": round(sum(ids_vals) / len(ids_vals), 4) if ids_vals else 0.0,
+                    "conditions": data["conditions"],
+                }
+            )
+        return {"active_run_id": run_id, "providers": payload}
     finally:
         conn.close()
 

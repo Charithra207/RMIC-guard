@@ -12,7 +12,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": {
         "provider": "anthropic",
         "anthropic_model": "claude-sonnet-4-6",
-        "openai_model": "gpt-4o-mini",
+        "gemini_model": "gemini/gemini-1.5-flash",
+        "groq_model": "groq/llama3-70b-8192",
+        "temperature": 0.2,
+        "max_tokens": 1024,
+        "rate_limits": {
+            "anthropic_rps": 1.0,
+            "gemini_rps": 4.0,
+            "groq_rps": 1.1,
+        },
+        "retry": {
+            "max_attempts": 3,
+            "backoff_factor": 2.0,
+            "max_backoff_seconds": 30.0,
+        },
     },
     "ids": {
         "weights": {
@@ -27,6 +40,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "warn_threshold": 0.35,
         "block_threshold": 0.60,
         "velocity_threshold": 0.05,
+    },
+    "experiment": {
+        "multi_model_mode": False,
+        "providers_to_test": ["anthropic", "gemini", "groq"],
+        "ensure_identical_prompts": True,
     },
 }
 

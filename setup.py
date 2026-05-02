@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from utils.config import load_config
 
 ROOT = Path(__file__).resolve().parent
 
@@ -80,19 +81,42 @@ def main() -> None:
             f"found {sys.version_info.major}.{sys.version_info.minor}",
         )
 
-    # 2 — .env and API key shape (no network)
+    # 2 — .env and provider key checks (no network)
     env_path = ROOT / ".env"
     if not env_path.is_file():
         err_line(".env and ANTHROPIC_API_KEY", f"missing {env_path}")
     else:
+        cfg = load_config(ROOT / "config.yaml")
+        provider = str((cfg.get("model", {}) or {}).get("provider", "anthropic")).strip().lower()
         an_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+        gm_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        gr_key = (os.environ.get("GROQ_API_KEY") or "").strip()
+
         if an_key.startswith("sk-ant-"):
             ok_line(".env exists and ANTHROPIC_API_KEY starts with sk-ant-")
         else:
-            err_line(
-                ".env exists and ANTHROPIC_API_KEY starts with sk-ant-",
-                "key missing, empty, or wrong prefix",
-            )
+            err_line(".env exists and ANTHROPIC_API_KEY starts with sk-ant-", "key missing, empty, or wrong prefix")
+
+        if provider == "gemini":
+            if gm_key:
+                ok_line("Active provider key check (GEMINI_API_KEY)")
+            else:
+                err_line("Active provider key check (GEMINI_API_KEY)", "missing for provider=gemini")
+        elif provider == "groq":
+            if gr_key:
+                ok_line("Active provider key check (GROQ_API_KEY)")
+            else:
+                err_line("Active provider key check (GROQ_API_KEY)", "missing for provider=groq")
+        else:
+            if an_key:
+                ok_line("Active provider key check (ANTHROPIC_API_KEY)")
+            else:
+                err_line("Active provider key check (ANTHROPIC_API_KEY)", "missing for provider=anthropic")
+
+        if not gm_key and provider != "gemini":
+            warn_line("Optional provider key", "GEMINI_API_KEY missing (not active provider)")
+        if not gr_key and provider != "groq":
+            warn_line("Optional provider key", "GROQ_API_KEY missing (not active provider)")
 
     model_env = (os.environ.get("ANTHROPIC_MODEL") or "").strip()
     if model_env in _RETIRED_ANTHROPIC_MODELS:

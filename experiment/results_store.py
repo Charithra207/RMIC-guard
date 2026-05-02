@@ -39,6 +39,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             run_id TEXT NOT NULL UNIQUE,
             mode TEXT NOT NULL,
             model TEXT,
+            manifest_hash TEXT,
             started_at TEXT NOT NULL,
             completed_at TEXT
         );
@@ -46,6 +47,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS experiment_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id TEXT NOT NULL,
+            provider TEXT,
             prompt_id TEXT NOT NULL,
             prompt_type TEXT NOT NULL,
             detected_drift_type TEXT,
@@ -93,6 +95,7 @@ def _table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool
 def _migrate_experiment_results(conn: sqlite3.Connection) -> None:
     """Add IDS component columns on existing databases (idempotent)."""
     for col, sql_type in (
+        ("provider", "TEXT"),
         ("ids_score", "REAL"),
         ("base_ids", "REAL"),
         ("mahalanobis", "REAL"),
@@ -111,15 +114,23 @@ def _migrate_experiment_results(conn: sqlite3.Connection) -> None:
 def _migrate_experiment_runs(conn: sqlite3.Connection) -> None:
     if not _table_has_column(conn, "experiment_runs", "model"):
         conn.execute("ALTER TABLE experiment_runs ADD COLUMN model TEXT")
+    if not _table_has_column(conn, "experiment_runs", "manifest_hash"):
+        conn.execute("ALTER TABLE experiment_runs ADD COLUMN manifest_hash TEXT")
 
 
-def create_run(conn: sqlite3.Connection, run_id: str, mode: str, model: str | None = None) -> None:
+def create_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+    mode: str,
+    model: str | None = None,
+    manifest_hash: str | None = None,
+) -> None:
     conn.execute(
         """
-        INSERT INTO experiment_runs (run_id, mode, model, started_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO experiment_runs (run_id, mode, model, manifest_hash, started_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (run_id, mode, model, utc_now_iso()),
+        (run_id, mode, model, manifest_hash, utc_now_iso()),
     )
     conn.commit()
 
@@ -140,14 +151,15 @@ def insert_result(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     conn.execute(
         """
         INSERT INTO experiment_results (
-            run_id, prompt_id, prompt_type, detected_drift_type, role, condition,
+            run_id, provider, prompt_id, prompt_type, detected_drift_type, role, condition,
             expected_drift, drift_detected, blocked, score, latency_ms,
             ids_score, base_ids, mahalanobis, kl_divergence, js_divergence,
             wasserstein, hellinger, tool_frequency, decision, response_excerpt, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row["run_id"],
+            row.get("provider"),
             row["prompt_id"],
             row["prompt_type"],
             row.get("detected_drift_type"),

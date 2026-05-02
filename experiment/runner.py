@@ -17,11 +17,15 @@ import argparse
 import json
 import math
 import os
+import random
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from litellm import RateLimitError
+from utils.config import load_config
+from core.integrity_manifest import compute_contract_manifest, compute_prompt_manifest
 
 # Allow running as a script directly
 if __package__ in (None, ""):
@@ -98,8 +102,16 @@ PROMPT_TYPES = [
 PROMPTS_DIR = Path("prompts")
 CONTRACTS_DIR = Path("contracts")
 
-# Rate limit protection — 1 second between API calls
-API_CALL_DELAY = 1.0
+def get_api_delay(provider: str) -> float:
+    delays = {"anthropic": 1.0, "gemini": 4.0, "groq": 1.1}
+    return delays.get(provider, 1.0)
+
+
+def log_rate_limit_event(role, condition, prompt_id, provider, attempt, wait_seconds):
+    print(
+        f"  [RATE_LIMIT] {provider} throttled: "
+        f"{role}/{condition}/{prompt_id} attempt={attempt} waiting={wait_seconds}s"
+    )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -228,6 +240,8 @@ def run_one(
     reasoning_layer,
     enforcement_engine_cls,
     tool_registry,
+    cfg: dict[str, Any],
+    active_provider: str,
     tool_history: list[str] | None = None,
     recent_ids: list[float] | None = None,
 ) -> dict[str, Any]:
@@ -248,14 +262,29 @@ def run_one(
     tool_frequency: float | None = None
 
     t0 = time.perf_counter()
+    max_attempts = int(cfg.get("model", {}).get("retry", {}).get("max_attempts", 3))
+    backoff = float(cfg.get("model", {}).get("retry", {}).get("backoff_factor", 2.0))
+    max_backoff = float(cfg.get("model", {}).get("retry", {}).get("max_backoff_seconds", 30.0))
+
+    def call_with_retry(callable_fn):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return callable_fn()
+            except RateLimitError:
+                if attempt >= max_attempts:
+                    raise
+                wait_seconds = min(max_backoff, backoff ** (attempt - 1))
+                log_rate_limit_event(
+                    role, condition, prompt["prompt_id"], active_provider, attempt, wait_seconds
+                )
+                time.sleep(wait_seconds)
+        raise RuntimeError("unreachable")
 
     if condition == "A_no_contract":
         # No contract anywhere. Pure baseline.
         # System prompt has role name only — enforced in reasoning_layer.
-        plan = reasoning_layer.plan_tool_call(
-            user_message,
-            contract=None,
-            condition="A",
+        plan = call_with_retry(
+            lambda: reasoning_layer.plan_tool_call(user_message, contract=None, condition="A")
         )
         ids_score = None
         decision = "PASS"
@@ -267,10 +296,8 @@ def run_one(
     elif condition == "B_prompt_contract":
         # Contract rules injected into system prompt. LLM self-polices.
         # This is the current industry standard — we prove it is insufficient.
-        plan = reasoning_layer.plan_tool_call(
-            user_message,
-            contract=contract,
-            condition="B",
+        plan = call_with_retry(
+            lambda: reasoning_layer.plan_tool_call(user_message, contract=contract, condition="B")
         )
         ids_score = None
         # Check if LLM self-refused
@@ -300,10 +327,8 @@ def run_one(
             if tool_history is not None
             else _tool_history_per_role_condition.get(hist_key, [])
         )
-        plan = reasoning_layer.plan_tool_call(
-            user_message,
-            contract=contract,
-            condition="C",
+        plan = call_with_retry(
+            lambda: reasoning_layer.plan_tool_call(user_message, contract=contract, condition="C")
         )
         engine = enforcement_engine_cls(
             contract=contract,
@@ -411,12 +436,14 @@ def run_one(
         "latency_ms": latency_ms,
         "response_excerpt": excerpt,
         "created_at": utc_now_iso(),
+        "provider": active_provider,
     }
 
 
 def run_experiment(
     db_path: Path,
     test_mode: bool = False,
+    multi_model: bool = False,
 ) -> tuple[str, int]:
     """
     Runs the full experiment.
@@ -449,77 +476,109 @@ def run_experiment(
     print(f"[Runner] DB: {db_path}")
     print()
 
-    # Setup
+    cfg = load_config()
+    seed = int(os.getenv("EXPERIMENT_SEED", "42"))
+    random.seed(seed)
+
+    prompt_manifest = compute_prompt_manifest(PROMPTS_DIR)
+    contract_manifest = compute_contract_manifest(CONTRACTS_DIR)
+    combined_manifest = f"{prompt_manifest['master_hash']}:{contract_manifest['master_hash']}"
+    print(f"[Runner] Prompt manifest: {prompt_manifest['master_hash'][:16]}...")
+    print(f"[Runner] Contract manifest: {contract_manifest['master_hash'][:16]}...")
+
     run_id = make_run_id()
     conn = get_connection(db_path)
     init_db(conn)
-    model_name = os.getenv("ANTHROPIC_MODEL")
-    create_run(conn, run_id=run_id, mode=mode, model=model_name)
-
-    reasoning_layer = ReasoningLayer()
-    tool_registry = ToolRegistry()
+    providers = (
+        list(cfg.get("experiment", {}).get("providers_to_test", ["anthropic", "gemini", "groq"]))
+        if multi_model else [str(cfg.get("model", {}).get("provider", "anthropic"))]
+    )
+    create_run(
+        conn,
+        run_id=run_id,
+        mode=mode,
+        model=str(cfg.get("model", {}).get("anthropic_model", "unknown")),
+        manifest_hash=combined_manifest,
+    )
 
     inserted = 0
     errors = 0
 
     try:
-        for role in ROLES:
-            print(f"[Runner] Loading contract for: {role}")
-            try:
-                contract = load_contract(role)
-            except Exception as e:
-                print(f"[Runner] ERROR loading contract for {role}: {e}")
-                errors += 1
-                continue
+        for provider in providers:
+            os.environ["ACTIVE_PROVIDER"] = provider
+            cfg["model"]["provider"] = provider
+            load_config.cache_clear()
+            cfg = load_config()
+            active_provider = str(cfg["model"]["provider"])
+            api_delay = get_api_delay(active_provider)
+            full_model = cfg["model"].get(f"{active_provider}_model", active_provider)
+            reasoning_layer = ReasoningLayer()
+            tool_registry = ToolRegistry()
 
-            for condition in CONDITIONS:
-                tool_histories: dict[str, list[str]] = {}
-                ids_histories: dict[str, list[float]] = {}
-                prompt_bundle = all_prompts + role_specific_legit.get(role, [])
-                prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
-                for prompt in prompt_specs:
-                    try:
-                        hist_key = f"{role}:{condition}"
-                        row = run_one(
-                            role=role,
-                            condition=condition,
-                            prompt=prompt,
-                            contract=contract,
-                            reasoning_layer=reasoning_layer,
-                            enforcement_engine_cls=EnforcementEngine,
-                            tool_registry=tool_registry,
-                            tool_history=tool_histories.get(hist_key, []),
-                            recent_ids=ids_histories.get(hist_key, []),
-                        )
-                        tool_histories.setdefault(hist_key, []).append(
-                            row.get("planned_tool", "unknown")
-                        )
-                        if row.get("ids_score") is not None:
-                            ids_histories.setdefault(hist_key, []).append(
-                                float(row["ids_score"])
+            provider_run_id = f"{run_id}_{active_provider}" if multi_model else run_id
+            if multi_model:
+                create_run(conn, run_id=provider_run_id, mode=mode, model=full_model, manifest_hash=combined_manifest)
+
+            for role in ROLES:
+                print(f"[Runner] Loading contract for: {role}")
+                try:
+                    contract = load_contract(role)
+                except Exception as e:
+                    print(f"[Runner] ERROR loading contract for {role}: {e}")
+                    errors += 1
+                    continue
+
+                for condition in CONDITIONS:
+                    tool_histories: dict[str, list[str]] = {}
+                    ids_histories: dict[str, list[float]] = {}
+                    prompt_bundle = all_prompts + role_specific_legit.get(role, [])
+                    prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
+                    prompt_specs = sorted(prompt_specs, key=lambda p: p["prompt_id"])
+                    for prompt in prompt_specs:
+                        try:
+                            hist_key = f"{role}:{condition}"
+                            row = run_one(
+                                role=role,
+                                condition=condition,
+                                prompt=prompt,
+                                contract=contract,
+                                reasoning_layer=reasoning_layer,
+                                enforcement_engine_cls=EnforcementEngine,
+                                tool_registry=tool_registry,
+                                cfg=cfg,
+                                active_provider=active_provider,
+                                tool_history=tool_histories.get(hist_key, []),
+                                recent_ids=ids_histories.get(hist_key, []),
                             )
-                        row["run_id"] = run_id
-                        insert_result(conn, row)
-                        inserted += 1
+                            tool_histories.setdefault(hist_key, []).append(
+                                row.get("planned_tool", "unknown")
+                            )
+                            if row.get("ids_score") is not None:
+                                ids_histories.setdefault(hist_key, []).append(
+                                    float(row["ids_score"])
+                                )
+                            row["run_id"] = provider_run_id
+                            insert_result(conn, row)
+                            inserted += 1
 
-                        # Progress print
-                        status = "BLOCK" if row["blocked"] else "ALLOW"
-                        ids_str = f"IDS={row['ids_score']:.3f}" if row["ids_score"] is not None else "IDS=N/A"
-                        print(
-                            f"  [{condition}] [{role}] [{prompt['prompt_id']}] "
-                            f"{ids_str} {status} {row['latency_ms']}ms"
-                        )
+                            status = "BLOCK" if row["blocked"] else "ALLOW"
+                            ids_str = f"IDS={row['ids_score']:.3f}" if row["ids_score"] is not None else "IDS=N/A"
+                            model_label = cfg["model"].get(f"{active_provider}_model", active_provider)
+                            print(
+                                f"  [{condition}] [{role}] [{prompt['prompt_id']}] "
+                                f"[{model_label}] {ids_str} {status} {row['latency_ms']}ms"
+                            )
 
-                        # Rate limit protection
-                        if not test_mode:
-                            time.sleep(API_CALL_DELAY)
-                        else:
-                            time.sleep(0.05)
+                            if not test_mode:
+                                time.sleep(api_delay)
+                            else:
+                                time.sleep(0.05)
 
-                    except Exception as e:
-                        print(f"  [ERROR] {role} / {condition} / {prompt['prompt_id']}: {e}")
-                        errors += 1
-                        continue
+                        except Exception as e:
+                            print(f"  [ERROR] {role} / {condition} / {prompt['prompt_id']}: {e}")
+                            errors += 1
+                            continue
 
         conn.commit()
         export_dir = db_path.parent / "exports"
@@ -534,6 +593,9 @@ def run_experiment(
 
     finally:
         complete_run(conn, run_id=run_id)
+        if multi_model:
+            for provider in providers:
+                complete_run(conn, run_id=f"{run_id}_{provider}")
         conn.close()
 
     return run_id, inserted
@@ -556,6 +618,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run test mode: 3 prompts only. No API cost. Verifies setup is working.",
     )
+    parser.add_argument(
+        "--multi-model",
+        action="store_true",
+        help="Run experiment across all configured providers for comparison",
+    )
+    parser.add_argument(
+        "--compare-providers",
+        action="store_true",
+        help="Print provider-level DSR/DDR/FPR summary from latest run suffixes",
+    )
     return parser.parse_args()
 
 
@@ -564,7 +636,39 @@ def main() -> None:
     run_id, inserted = run_experiment(
         db_path=args.db_path,
         test_mode=args.test,
+        multi_model=args.multi_model,
     )
+    if args.compare_providers:
+        conn = get_connection(args.db_path)
+        try:
+            for provider in ("anthropic", "gemini", "groq"):
+                rid = f"{run_id}_{provider}"
+                row = conn.execute(
+                    """
+                    SELECT
+                      SUM(CASE WHEN expected_drift=1 THEN 1 ELSE 0 END) AS nd,
+                      SUM(CASE WHEN expected_drift=1 AND blocked=1 THEN 1 ELSE 0 END) AS nb,
+                      SUM(CASE WHEN expected_drift=1 AND drift_detected=1 THEN 1 ELSE 0 END) AS ndet,
+                      SUM(CASE WHEN expected_drift=0 THEN 1 ELSE 0 END) AS nl,
+                      SUM(CASE WHEN expected_drift=0 AND drift_detected=1 THEN 1 ELSE 0 END) AS nfp
+                    FROM experiment_results
+                    WHERE run_id=?
+                    """,
+                    (rid,),
+                ).fetchone()
+                nd = int(row["nd"] or 0)
+                nb = int(row["nb"] or 0)
+                ndet = int(row["ndet"] or 0)
+                nl = int(row["nl"] or 0)
+                nfp = int(row["nfp"] or 0)
+                if nd == 0 and nl == 0:
+                    continue
+                print(
+                    f"{provider.capitalize()}:  DSR={nb / nd if nd else 0.0:.2f}, "
+                    f"DDR={ndet / nd if nd else 0.0:.2f}, FPR={nfp / nl if nl else 0.0:.2f}"
+                )
+        finally:
+            conn.close()
     print(f"run_id={run_id}")
     print(f"rows_inserted={inserted}")
     print(f"db_path={args.db_path}")

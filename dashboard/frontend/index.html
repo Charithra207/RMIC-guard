@@ -150,6 +150,12 @@
         <select id="runSelector" class="btn" style="font-size:12px;padding:7px 10px;">
           <option value="">Loading runs...</option>
         </select>
+        <select id="providerSelector" class="btn" style="font-size:12px;padding:7px 10px;">
+          <option value="all">All Providers</option>
+          <option value="anthropic">Claude</option>
+          <option value="gemini">Gemini</option>
+          <option value="groq">Groq</option>
+        </select>
         <button class="btn" id="refreshBtn" type="button">Refresh</button>
       </div>
     </div>
@@ -235,11 +241,24 @@
           </div>
         </div>
       </div>
+
+      <div class="card chart-card">
+        <div class="pad">
+          <div class="card-title">
+            <h2>Model Comparison</h2>
+            <div class="hint">DSR by provider</div>
+          </div>
+          <div class="chart-wrap" style="height: 260px;">
+            <canvas id="providerComparisonChart"></canvas>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
     let timelineChart = null;
+    let providerComparisonChart = null;
 
     function showStatus(message) {
       const el = document.getElementById('statusBox');
@@ -287,6 +306,13 @@
       return `${url}${sep}run_id=${encodeURIComponent(runId)}`;
     }
 
+    function withRunAndProvider(url) {
+      const runUrl = withRunId(url);
+      const provider = document.getElementById('providerSelector').value || 'all';
+      const sep = runUrl.includes('?') ? '&' : '?';
+      return `${runUrl}${sep}provider=${encodeURIComponent(provider)}`;
+    }
+
     async function loadHealth() {
       const data = await fetchJson('/api/health');
       document.getElementById('db_path').textContent = `DB: ${data.db_path}`;
@@ -304,7 +330,7 @@
     }
 
     async function loadResultsSummaryTable() {
-      const data = await fetchJson(withRunId('/api/stats'));
+      const data = await fetchJson(withRunAndProvider('/api/stats'));
       const stats = data.stats || {};
       const order = [
         ['A_no_contract', 'A'],
@@ -382,6 +408,8 @@
       const hint = document.getElementById('timelineHint');
       hint.textContent = 'Loading…';
       const data = await fetchJson(withRunId('/api/ids-timeline'));
+      const provider = document.getElementById('providerSelector').value || 'all';
+      const providerLabel = provider === 'all' ? 'All' : provider.charAt(0).toUpperCase() + provider.slice(1);
       const n = data.labels?.length ?? 0;
       hint.textContent = n ? `Points: ${n} (all conditions)` : 'No data yet';
 
@@ -404,7 +432,7 @@
         data: {
           labels: data.labels || [],
           datasets: [
-            mk('Base IDS',            data.base_ids,      'rgba(124, 58, 237, 0.95)'),
+            mk(`Base IDS (${providerLabel})`, data.base_ids, 'rgba(124, 58, 237, 0.95)'),
             mk('Mahalanobis',         data.mahalanobis,   'rgba(59, 130, 246, 0.95)'),
             mk('KL Divergence',       data.kl_divergence, 'rgba(245, 158, 11, 0.95)',  [4, 2]),
             mk('Jensen–Shannon',      data.js_divergence, 'rgba(34, 197, 94, 0.95)'),
@@ -457,6 +485,25 @@
       timelineChart = new Chart(ctx, config);
     }
 
+    async function loadProviderComparison() {
+      const data = await fetchJson(withRunId('/api/provider-comparison'));
+      const providers = data.providers || [];
+      const labels = providers.map(p => (p.provider || 'anthropic').toUpperCase());
+      const values = providers.map(p => {
+        const c = p.conditions?.C_rmic_middleware || {};
+        return Number(c.dsr || 0);
+      });
+      const colors = labels.map(l => l === 'ANTHROPIC' ? '#7c3aed' : l === 'GEMINI' ? '#3b82f6' : '#22c55e');
+      const ctx = document.getElementById('providerComparisonChart');
+      const cfg = {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'DSR', data: values, backgroundColor: colors }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 0, max: 1 } } },
+      };
+      if (providerComparisonChart) providerComparisonChart.destroy();
+      providerComparisonChart = new Chart(ctx, cfg);
+    }
+
     async function refreshAll() {
       clearStatus();
       try {
@@ -465,6 +512,7 @@
         await loadOverview();
         await loadTimeline();
         await loadResultsSummaryTable();
+        await loadProviderComparison();
         await loadCrossRunComparison();
       } catch (err) {
         showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
@@ -473,6 +521,7 @@
 
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
     document.getElementById('runSelector').addEventListener('change', refreshAll);
+    document.getElementById('providerSelector').addEventListener('change', refreshAll);
     refreshAll();
   </script>
 
