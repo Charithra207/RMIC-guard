@@ -358,8 +358,20 @@
 
     async function loadCrossRunComparison() {
       const data = await fetchJson('/api/runs-comparison');
-      const runs = data.runs || [];
-      if (!runs.length) return;
+      const selectedProvider = (document.getElementById('providerSelector').value || 'all').toLowerCase();
+      let runs = data.runs || [];
+      if (selectedProvider !== 'all') {
+        runs = runs.filter((run) => {
+          const model = String(run.model || '').toLowerCase();
+          if (selectedProvider === 'anthropic') return model.includes('claude') || model.includes('anthropic');
+          return model.includes(selectedProvider);
+        });
+      }
+      if (!runs.length) {
+        document.getElementById('crossRunHead').innerHTML = '';
+        document.getElementById('crossRunBody').innerHTML = '';
+        return;
+      }
 
       const conditions = ['A', 'B', 'C', 'C1', 'C2'];
       const thead = document.getElementById('crossRunHead');

@@ -451,7 +451,7 @@ def run_experiment(
     test_mode=False: all prompts (full experiment, needs API credits).
     """
     # Import core modules
-    from core.reasoning_layer import ReasoningLayer
+    from core.reasoning_layer import ClaudeReasoning, GeminiReasoning, GroqReasoning
     from core.enforcement_engine import EnforcementEngine
     from core.tool_layer import ToolRegistry
 
@@ -500,6 +500,7 @@ def run_experiment(
         model=str(cfg.get("model", {}).get("anthropic_model", "unknown")),
         manifest_hash=combined_manifest,
     )
+    created_run_ids = [run_id]
 
     inserted = 0
     errors = 0
@@ -507,18 +508,21 @@ def run_experiment(
     try:
         for provider in providers:
             os.environ["ACTIVE_PROVIDER"] = provider
-            cfg["model"]["provider"] = provider
-            load_config.cache_clear()
-            cfg = load_config()
-            active_provider = str(cfg["model"]["provider"])
+            active_provider = provider
             api_delay = get_api_delay(active_provider)
             full_model = cfg["model"].get(f"{active_provider}_model", active_provider)
-            reasoning_layer = ReasoningLayer()
+            if active_provider == "gemini":
+                reasoning_layer = GeminiReasoning(model_name=str(full_model))
+            elif active_provider == "groq":
+                reasoning_layer = GroqReasoning(model_name=str(full_model))
+            else:
+                reasoning_layer = ClaudeReasoning(model_name=str(full_model))
             tool_registry = ToolRegistry()
 
             provider_run_id = f"{run_id}_{active_provider}" if multi_model else run_id
             if multi_model:
                 create_run(conn, run_id=provider_run_id, mode=mode, model=full_model, manifest_hash=combined_manifest)
+                created_run_ids.append(provider_run_id)
 
             for role in ROLES:
                 print(f"[Runner] Loading contract for: {role}")
@@ -592,10 +596,8 @@ def run_experiment(
         print(f"[Runner] Export XLSX: {xlsx_path}")
 
     finally:
-        complete_run(conn, run_id=run_id)
-        if multi_model:
-            for provider in providers:
-                complete_run(conn, run_id=f"{run_id}_{provider}")
+        for rid in created_run_ids:
+            complete_run(conn, run_id=rid)
         conn.close()
 
     return run_id, inserted
