@@ -1,8 +1,8 @@
 model:
-  provider: gemini
+  provider: gemini   # default when NOT using --multi-model
   anthropic_model: claude-sonnet-4-6
-  gemini_model: gemini/gemini-1.5-flash
-  groq_model: groq/llama3-70b-8192
+  gemini_model: gemini-1.5-flash
+  groq_model: llama3-70b-8192
   temperature: 0.2
   max_tokens: 1024
   rate_limits:
@@ -28,6 +28,9 @@ thresholds:
   velocity_threshold: 0.05
 
 experiment:
-  multi_model_mode: false
-  providers_to_test: ["anthropic", "gemini", "groq"]
+  multi_model_mode: true   # ✅ THIS IS THE KEY FIX
+  providers_to_test:
+    - anthropic
+    - gemini
+    - groq
   ensure_identical_prompts: true
