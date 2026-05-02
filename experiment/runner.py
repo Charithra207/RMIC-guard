@@ -126,6 +126,26 @@ def _provider_key_status(provider: str) -> tuple[str, bool]:
     return env_name, bool((os.environ.get(env_name) or "").strip())
 
 
+def _anthropic_models_for_run(cfg: dict[str, Any], models_csv: str | None) -> list[str]:
+    if models_csv and models_csv.strip():
+        raw = [m.strip() for m in models_csv.split(",") if m.strip()]
+    else:
+        cfg_models = cfg.get("experiment", {}).get("anthropic_models_to_test", [])
+        if isinstance(cfg_models, list) and cfg_models:
+            raw = [str(m).strip() for m in cfg_models if str(m).strip()]
+        else:
+            raw = [
+                str(cfg.get("model", {}).get("anthropic_model", "claude-sonnet-4-6")).strip(),
+                "claude-3-5-sonnet-latest",
+                "claude-3-5-haiku-latest",
+            ]
+    deduped: list[str] = []
+    for m in raw:
+        if m and m not in deduped:
+            deduped.append(m)
+    return deduped or [str(cfg.get("model", {}).get("anthropic_model", "claude-sonnet-4-6")).strip()]
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def utc_now_iso() -> str:
@@ -254,6 +274,7 @@ def run_one(
     tool_registry,
     cfg: dict[str, Any],
     active_provider: str,
+    active_model: str | None = None,
     tool_history: list[str] | None = None,
     recent_ids: list[float] | None = None,
 ) -> dict[str, Any]:
@@ -429,6 +450,7 @@ def run_one(
         "prompt_type": prompt_type,
         "detected_drift_type": detected_drift_type,
         "role": role,
+        "model": active_model or "",
         "condition": condition,
         "expected_drift": expected_drift,
         "drift_detected": drift_detected,
@@ -458,6 +480,7 @@ def run_experiment(
     multi_model: bool = False,
     provider: str | None = None,
     providers_csv: str | None = None,
+    models_csv: str | None = None,
 ) -> tuple[str, int]:
     """
     Runs the full experiment.
@@ -525,7 +548,12 @@ def run_experiment(
     if not usable_providers:
         raise RuntimeError("No provider API keys found. Check .env and shell environment variables.")
     providers = usable_providers
+    anthropic_models = _anthropic_models_for_run(cfg, models_csv) if multi_model else []
+    if multi_model and "anthropic" in providers:
+        print(f"[Runner] Anthropic models: {', '.join(anthropic_models)}")
     total = len(ROLES) * len(CONDITIONS) * effective_per_role * len(providers)
+    if multi_model and "anthropic" in providers:
+        total += len(ROLES) * len(CONDITIONS) * effective_per_role * (len(anthropic_models) - 1)
     print(f"[Runner] Total API calls: {total}")
     print(f"[Runner] Providers: {', '.join(providers)}")
     print(f"[Runner] DB: {db_path}")
@@ -548,79 +576,80 @@ def run_experiment(
             active_provider = provider
             print(f"[Runner] Starting provider: {active_provider}")
             api_delay = get_api_delay(active_provider)
-            full_model = cfg["model"].get(f"{active_provider}_model", active_provider)
-            if active_provider == "gemini":
-                reasoning_layer = GeminiReasoning(model_name=str(full_model))
-            elif active_provider == "groq":
-                reasoning_layer = GroqReasoning(model_name=str(full_model))
-            else:
-                reasoning_layer = ClaudeReasoning(model_name=str(full_model))
-            tool_registry = ToolRegistry()
+            full_model = str(cfg["model"].get(f"{active_provider}_model", active_provider))
+            provider_models = [full_model]
+            if active_provider == "anthropic" and multi_model:
+                provider_models = anthropic_models
 
             provider_run_id = f"{run_id}_{active_provider}" if multi_model else run_id
             if multi_model:
                 create_run(conn, run_id=provider_run_id, mode=mode, model=full_model, manifest_hash=combined_manifest)
                 created_run_ids.append(provider_run_id)
+            for model_label in provider_models:
+                if active_provider == "gemini":
+                    reasoning_layer = GeminiReasoning(model_name=str(model_label))
+                elif active_provider == "groq":
+                    reasoning_layer = GroqReasoning(model_name=str(model_label))
+                else:
+                    reasoning_layer = ClaudeReasoning(model_name=str(model_label))
+                tool_registry = ToolRegistry()
 
-            for role in ROLES:
-                print(f"[Runner] Loading contract for: {role}")
-                try:
-                    contract = load_contract(role)
-                except Exception as e:
-                    print(f"[Runner] ERROR loading contract for {role}: {e}")
-                    errors += 1
-                    continue
+                for role in ROLES:
+                    print(f"[Runner] Loading contract for: {role}")
+                    try:
+                        contract = load_contract(role)
+                    except Exception as e:
+                        print(f"[Runner] ERROR loading contract for {role}: {e}")
+                        errors += 1
+                        continue
 
-                for condition in CONDITIONS:
-                    tool_histories: dict[str, list[str]] = {}
-                    ids_histories: dict[str, list[float]] = {}
-                    prompt_bundle = all_prompts + role_specific_legit.get(role, [])
-                    prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
-                    prompt_specs = sorted(prompt_specs, key=lambda p: p["prompt_id"])
-                    for prompt in prompt_specs:
-                        try:
-                            hist_key = f"{role}:{condition}"
-                            row = run_one(
-                                role=role,
-                                condition=condition,
-                                prompt=prompt,
-                                contract=contract,
-                                reasoning_layer=reasoning_layer,
-                                enforcement_engine_cls=EnforcementEngine,
-                                tool_registry=tool_registry,
-                                cfg=cfg,
-                                active_provider=active_provider,
-                                tool_history=tool_histories.get(hist_key, []),
-                                recent_ids=ids_histories.get(hist_key, []),
-                            )
-                            tool_histories.setdefault(hist_key, []).append(
-                                row.get("planned_tool", "unknown")
-                            )
-                            if row.get("ids_score") is not None:
-                                ids_histories.setdefault(hist_key, []).append(
-                                    float(row["ids_score"])
+                    for condition in CONDITIONS:
+                        tool_histories: dict[str, list[str]] = {}
+                        ids_histories: dict[str, list[float]] = {}
+                        prompt_bundle = all_prompts + role_specific_legit.get(role, [])
+                        prompt_specs = prompt_bundle[:3] if test_mode else prompt_bundle
+                        prompt_specs = sorted(prompt_specs, key=lambda p: p["prompt_id"])
+                        for prompt in prompt_specs:
+                            try:
+                                hist_key = f"{role}:{condition}"
+                                row = run_one(
+                                    role=role,
+                                    condition=condition,
+                                    prompt=prompt,
+                                    contract=contract,
+                                    reasoning_layer=reasoning_layer,
+                                    enforcement_engine_cls=EnforcementEngine,
+                                    tool_registry=tool_registry,
+                                    cfg=cfg,
+                                    active_provider=active_provider,
+                                    active_model=str(model_label),
+                                    tool_history=tool_histories.get(hist_key, []),
+                                    recent_ids=ids_histories.get(hist_key, []),
                                 )
-                            row["run_id"] = provider_run_id
-                            insert_result(conn, row)
-                            inserted += 1
+                                tool_histories.setdefault(hist_key, []).append(
+                                    row.get("planned_tool", "unknown")
+                                )
+                                if row.get("ids_score") is not None:
+                                    ids_histories.setdefault(hist_key, []).append(float(row["ids_score"]))
+                                row["run_id"] = provider_run_id
+                                insert_result(conn, row)
+                                inserted += 1
 
-                            status = "BLOCK" if row["blocked"] else "ALLOW"
-                            ids_str = f"IDS={row['ids_score']:.3f}" if row["ids_score"] is not None else "IDS=N/A"
-                            model_label = cfg["model"].get(f"{active_provider}_model", active_provider)
-                            print(
-                                f"  [{condition}] [{role}] [{prompt['prompt_id']}] "
-                                f"[{model_label}] {ids_str} {status} {row['latency_ms']}ms"
-                            )
+                                status = "BLOCK" if row["blocked"] else "ALLOW"
+                                ids_str = f"IDS={row['ids_score']:.3f}" if row["ids_score"] is not None else "IDS=N/A"
+                                print(
+                                    f"  [{condition}] [{role}] [{prompt['prompt_id']}] "
+                                    f"[{model_label}] {ids_str} {status} {row['latency_ms']}ms"
+                                )
 
-                            if not test_mode:
-                                time.sleep(api_delay)
-                            else:
-                                time.sleep(0.05)
-
-                        except Exception as e:
-                            print(f"  [ERROR] {role} / {condition} / {prompt['prompt_id']}: {e}")
-                            errors += 1
-                            continue
+                                if not test_mode:
+                                    time.sleep(api_delay)
+                                else:
+                                    time.sleep(0.05)
+                            except Exception as e:
+                                print(f"  [ERROR] {role} / {condition} / {prompt['prompt_id']}: {e}")
+                                errors += 1
+                                continue
 
         conn.commit()
         export_dir = db_path.parent / "exports"
@@ -680,6 +709,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Comma-separated providers, e.g. anthropic,gemini,groq (overrides --multi-model list).",
     )
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Comma-separated Anthropic model IDs (used when provider includes anthropic in --multi-model).",
+    )
     return parser.parse_args()
 
 
@@ -691,6 +726,7 @@ def main() -> None:
         multi_model=args.multi_model,
         provider=args.provider,
         providers_csv=args.providers,
+        models_csv=args.models,
     )
     if args.compare_providers:
         conn = get_connection(args.db_path)
