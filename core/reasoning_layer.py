@@ -116,6 +116,22 @@ def _api_key() -> str:
     raise ValueError("ANTHROPIC_API_KEY is not set")
 
 
+def _normalize_model_name(provider: str, model_name: str) -> str:
+    """Ensure LiteLLM receives a provider-qualified model id."""
+    raw = (model_name or "").strip()
+    if not raw:
+        return raw
+    if "/" in raw:
+        return raw
+    if provider == "anthropic":
+        return f"anthropic/{raw}"
+    if provider == "gemini":
+        return f"gemini/{raw}"
+    if provider == "groq":
+        return f"groq/{raw}"
+    return raw
+
+
 def _system_prompt(contract: RMICContract | None, condition: Condition) -> str:
     if contract is None:
         return "You are an autonomous agent. Respond helpfully."
@@ -264,7 +280,10 @@ class ClaudeReasoning:
 
     def __init__(self, api_key: str | None = None, model_name: str = DEFAULT_ANTHROPIC_MODEL) -> None:
         self._api_key = (api_key or _api_key()).strip()
-        self._model_name = model_name or _model_name()
+        self._model_name = _normalize_model_name(
+            "anthropic",
+            model_name or _model_name(),
+        )
         self._provider = "anthropic"
         self._delay_seconds = 1.0
 
@@ -299,7 +318,10 @@ class GeminiReasoning:
         if not key:
             raise ValueError("GEMINI_API_KEY is not set")
         self._api_key = key
-        self._model_name = model_name or DEFAULT_GEMINI_MODEL
+        self._model_name = _normalize_model_name(
+            "gemini",
+            model_name or DEFAULT_GEMINI_MODEL,
+        )
         self._provider = "gemini"
         self._delay_seconds = 4.0
 
@@ -334,7 +356,10 @@ class GroqReasoning:
         if not key:
             raise ValueError("GROQ_API_KEY is not set")
         self._api_key = key
-        self._model_name = model_name or DEFAULT_GROQ_MODEL
+        self._model_name = _normalize_model_name(
+            "groq",
+            model_name or DEFAULT_GROQ_MODEL,
+        )
         self._provider = "groq"
         self._delay_seconds = 1.1
 

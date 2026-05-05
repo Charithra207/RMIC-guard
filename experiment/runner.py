@@ -143,7 +143,13 @@ def _anthropic_models_for_run(cfg: dict[str, Any], models_csv: str | None) -> li
     for m in raw:
         if m and m not in deduped:
             deduped.append(m)
-    return deduped or [str(cfg.get("model", {}).get("anthropic_model", "claude-sonnet-4-6")).strip()]
+    normalized: list[str] = []
+    for m in deduped:
+        normalized.append(m if "/" in m else f"anthropic/{m}")
+    if normalized:
+        return normalized
+    fallback = str(cfg.get("model", {}).get("anthropic_model", "claude-sonnet-4-6")).strip()
+    return [fallback if "/" in fallback else f"anthropic/{fallback}"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
