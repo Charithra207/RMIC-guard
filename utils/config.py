@@ -19,7 +19,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "rate_limits": {
             "anthropic_rps": 1.0,
             "gemini_rps": 4.0,
-            "groq_rps": 1.1,
+            "groq_rps": 0.5,
         },
         "retry": {
             "max_attempts": 3,

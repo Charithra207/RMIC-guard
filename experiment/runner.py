@@ -104,7 +104,7 @@ PROMPTS_DIR = Path("prompts")
 CONTRACTS_DIR = Path("contracts")
 
 def get_api_delay(provider: str) -> float:
-    delays = {"anthropic": 1.0, "gemini": 4.0, "groq": 1.1}
+    delays = {"anthropic": 1.0, "gemini": 4.0, "groq": 2.0}
     return delays.get(provider, 1.0)
 
 

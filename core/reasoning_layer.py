@@ -117,19 +117,19 @@ def _api_key() -> str:
 
 
 def _normalize_model_name(provider: str, model_name: str) -> str:
-    """Ensure LiteLLM receives a provider-qualified model id."""
+    """Ensure LiteLLM receives a provider-qualified model id (exactly once)."""
     raw = (model_name or "").strip()
     if not raw:
         return raw
-    if "/" in raw:
+    prefix = f"{provider}/"
+    # Already correctly prefixed — return as-is
+    if raw.startswith(prefix):
         return raw
-    if provider == "anthropic":
-        return f"anthropic/{raw}"
-    if provider == "gemini":
-        return f"gemini/{raw}"
-    if provider == "groq":
-        return f"groq/{raw}"
-    return raw
+    # Strip any other provider prefix to avoid double-prefixing
+    # e.g. "gemini/gemini-1.5-flash" passed to groq → strip to "gemini-1.5-flash"
+    if "/" in raw:
+        raw = raw.split("/", 1)[1]
+    return f"{prefix}{raw}"
 
 
 def _system_prompt(contract: RMICContract | None, condition: Condition) -> str:
@@ -318,6 +318,7 @@ class GeminiReasoning:
         if not key:
             raise ValueError("GEMINI_API_KEY is not set")
         self._api_key = key
+        os.environ["GEMINI_API_KEY"] = self._api_key
         self._model_name = _normalize_model_name(
             "gemini",
             model_name or DEFAULT_GEMINI_MODEL,
@@ -356,12 +357,13 @@ class GroqReasoning:
         if not key:
             raise ValueError("GROQ_API_KEY is not set")
         self._api_key = key
+        os.environ["GROQ_API_KEY"] = self._api_key
         self._model_name = _normalize_model_name(
             "groq",
             model_name or DEFAULT_GROQ_MODEL,
         )
         self._provider = "groq"
-        self._delay_seconds = 1.1
+        self._delay_seconds = 2.0
 
     def plan_tool_call(
         self,
@@ -402,6 +404,14 @@ def _plan_with_litellm(
     for attempt in range(1, max_attempts + 1):
         t0 = time.perf_counter()
         try:
+            # Ensure the API key is in the environment — some LiteLLM versions
+            # ignore the api_key parameter and read from os.environ instead.
+            if provider == "gemini":
+                os.environ["GEMINI_API_KEY"] = api_key
+            elif provider == "groq":
+                os.environ["GROQ_API_KEY"] = api_key
+            elif provider == "anthropic":
+                os.environ["ANTHROPIC_API_KEY"] = api_key
             response = litellm.completion(
                 model=model_name,
                 api_key=api_key,
