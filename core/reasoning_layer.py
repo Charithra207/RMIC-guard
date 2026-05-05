@@ -78,7 +78,7 @@ Do not add explanations, markdown, or any text outside the JSON object."""
 
 # Default: current-generation Sonnet on the direct Anthropic API (not OpenRouter).
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
-DEFAULT_GEMINI_MODEL = "gemini/gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini/gemini-2.0-flash"
 DEFAULT_GROQ_MODEL = "groq/llama3-70b-8192"
 
 # These IDs return 404 from api.anthropic.com — they were removed or replaced.
