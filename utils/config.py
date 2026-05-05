@@ -13,7 +13,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "provider": "anthropic",
         "anthropic_model": "claude-sonnet-4-6",
         "gemini_model": "gemini/gemini-2.0-flash",
-        "groq_model": "groq/llama3-70b-8192",
+        "groq_model": "groq/llama-3.3-70b-versatile",
         "temperature": 0.2,
         "max_tokens": 1024,
         "rate_limits": {
