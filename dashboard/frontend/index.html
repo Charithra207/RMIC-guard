@@ -1,541 +1,403 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RMIC Guard Dashboard — Developer</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root{
-      --bg: #0b1020;
-      --panel: rgba(255,255,255,0.08);
-      --panel2: rgba(255,255,255,0.06);
-      --text: rgba(255,255,255,0.92);
-      --muted: rgba(255,255,255,0.70);
-      --border: rgba(255,255,255,0.12);
-      --shadow: 0 14px 40px rgba(0,0,0,0.35);
-      --brand: #7c3aed;
-      --ok: #22c55e;
-      --warn: #f59e0b;
-      --bad: #ef4444;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(1200px 600px at 20% -10%, rgba(124,58,237,0.55), transparent 55%),
-        radial-gradient(900px 500px at 95% 0%, rgba(34,197,94,0.35), transparent 55%),
-        radial-gradient(800px 500px at 70% 110%, rgba(59,130,246,0.30), transparent 55%),
-        var(--bg);
-      min-height: 100vh;
-    }
-    a { color: inherit; text-decoration: none; }
-    .container { max-width: 1100px; margin: 0 auto; padding: 22px 18px 40px; }
-    .topbar{
-      display:flex; align-items:center; justify-content:space-between;
-      padding: 14px 16px;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-      position: sticky; top: 14px; z-index: 10;
-    }
-    .brand { display:flex; align-items:center; gap:10px; font-weight: 700; letter-spacing: 0.2px; }
-    .dot{
-      width: 10px; height: 10px; border-radius: 999px;
-      background: var(--brand);
-      box-shadow: 0 0 0 6px rgba(124,58,237,0.20);
-    }
-    .nav { display:flex; gap:10px; align-items:center; }
-    .pill{
-      padding: 8px 10px; border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.06);
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .pill strong { color: var(--text); font-weight: 650; }
-    .btn{
-      padding: 9px 12px; border-radius: 12px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.08);
-      color: var(--text);
-      font-weight: 600;
-      font-size: 13px;
-      cursor: pointer;
-      transition: transform .05s ease, background .2s ease;
-    }
-    .btn:hover{ background: rgba(255,255,255,0.12); }
-    .btn:active{ transform: translateY(1px); }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>RMIC Guard — Research Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0a0f1e;--surface:rgba(255,255,255,0.06);--surface2:rgba(255,255,255,0.10);--border:rgba(255,255,255,0.10);--text:rgba(255,255,255,0.93);--muted:rgba(255,255,255,0.55);--brand:#7c3aed;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--radius:14px;--shadow:0 8px 32px rgba(0,0,0,0.4);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;background:radial-gradient(ellipse 120% 60% at 10% -5%,rgba(124,58,237,.5),transparent 55%),radial-gradient(ellipse 80% 50% at 90% 0%,rgba(59,130,246,.3),transparent 55%),var(--bg);color:var(--text);min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px;}
 
-    .header { margin: 18px 6px 14px; display:flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
-    .header h1 { margin: 0; font-size: 22px; }
-    .subtitle { color: var(--muted); font-size: 13px; }
+/* ── topbar ── */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:rgba(255,255,255,0.07);border:1px solid var(--border);border-radius:var(--radius);backdrop-filter:blur(12px);position:sticky;top:12px;z-index:20;flex-wrap:wrap;}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;letter-spacing:.3px;}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 5px rgba(124,58,237,.2);}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.ctrl-group{display:flex;flex-direction:column;gap:3px;}
+.ctrl-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding-left:2px;}
+select,button{background:rgba(255,255,255,0.08);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:7px 11px;font-size:12px;font-weight:500;cursor:pointer;transition:background .15s;}
+select{min-width:180px;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;}
+select option{background:#1a1f35;color:var(--text);padding:6px;}
+select:focus,button:focus{outline:2px solid var(--brand);outline-offset:2px;}
+button:hover,select:hover{background:rgba(255,255,255,0.13);}
+.btn-refresh{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600;}
+.btn-refresh:hover{background:#6d28d9;}
 
-    .grid { display:grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
-    .card{
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
-      border-radius: 16px;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-      overflow: hidden;
-    }
-    .card .pad{ padding: 14px 14px; }
-    .kpis{ grid-column: 1 / -1; }
-    .kpi-row{ display:grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
-    .kpi{
-      border: 1px solid rgba(255,255,255,0.10);
-      background: rgba(0,0,0,0.12);
-      border-radius: 14px;
-      padding: 12px;
-      min-height: 70px;
-    }
-    .kpi .label{ color: var(--muted); font-size: 12px; }
-    .kpi .value{ font-size: 18px; font-weight: 750; margin-top: 6px; }
-    .kpi .meta{ color: var(--muted); font-size: 12px; margin-top: 4px; }
+/* ── page header ── */
+.page-header{margin:22px 4px 18px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+.page-header h1{font-size:22px;font-weight:700;}
+.page-header .sub{color:var(--muted);font-size:13px;}
 
-    .chart-card{ grid-column: 1 / -1; }
-    .card-title{ display:flex; justify-content:space-between; align-items:center; gap: 10px; margin-bottom: 6px; }
-    .card-title h2{ margin: 0; font-size: 15px; letter-spacing: 0.2px; }
-    .card-title .hint{ color: var(--muted); font-size: 12px; }
-    .chart-wrap{ position: relative; height: 340px; }
+/* ── grid ── */
+.grid{display:grid;gap:14px;grid-template-columns:repeat(12,1fr);}
+.col-12{grid-column:1/-1;}
+.col-6{grid-column:span 6;}
+.col-4{grid-column:span 4;}
+.col-3{grid-column:span 3;}
+@media(max-width:900px){.col-6,.col-4,.col-3{grid-column:1/-1;}}
 
-    .notice{
-      margin-top: 10px;
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px dashed rgba(255,255,255,0.18);
-      color: var(--muted);
-      font-size: 12px;
-      background: rgba(0,0,0,0.12);
-    }
-    .notice strong{ color: var(--text); }
-    .summary-card table{
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 6px;
-      font-size: 13px;
-    }
-    .summary-card th, .summary-card td{
-      border-bottom: 1px solid rgba(255,255,255,0.10);
-      padding: 8px 6px;
-      text-align: left;
-    }
-    .summary-card th{
-      color: var(--muted);
-      font-weight: 600;
-    }
+/* ── card ── */
+.card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+.card-body{padding:16px;}
+.card-title{font-size:13px;font-weight:650;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.card-title .hint{font-size:11px;color:var(--muted);font-weight:400;}
 
-    @media (max-width: 900px){
-      .kpi-row{ grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-      .chart-wrap{ height: 300px; }
-    }
-    @media (max-width: 520px){
-      .topbar{ position: static; }
-      .kpi-row{ grid-template-columns: 1fr; }
-      .chart-wrap{ height: 260px; }
-    }
-  </style>
+/* ── KPI tiles ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+@media(max-width:700px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+.kpi{background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:12px;padding:14px 12px;}
+.kpi .k-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+.kpi .k-val{font-size:26px;font-weight:750;margin:6px 0 2px;line-height:1;}
+.kpi .k-sub{font-size:11px;color:var(--muted);}
+
+/* ── chart wrapper ── */
+.chart-wrap{position:relative;}
+
+/* ── table ── */
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+.tbl th{color:var(--muted);font-weight:600;padding:8px 8px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;}
+.tbl td{padding:8px 8px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:rgba(255,255,255,0.03);}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}
+.badge-anthropic{background:rgba(124,58,237,.25);color:#c4b5fd;}
+.badge-groq{background:rgba(34,197,94,.2);color:#86efac;}
+
+/* ── status box ── */
+.status-box{margin-top:10px;padding:10px 12px;border-radius:10px;border:1px dashed rgba(255,255,255,.15);color:var(--muted);font-size:12px;background:rgba(0,0,0,.15);display:none;}
+
+/* ── section label ── */
+.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:22px 4px 10px;}
+</style>
 </head>
 <body>
-  <div class="container">
-    <div class="topbar">
-      <div class="brand"><span class="dot"></span> RMIC Guard</div>
-      <div class="nav">
-        <span class="pill"><strong>RMIC Guard Dashboard</strong></span>
-        <select id="runSelector" class="btn" style="font-size:12px;padding:7px 10px;">
-          <option value="">Loading runs...</option>
+<div class="wrap">
+
+  <!-- topbar -->
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>RMIC Guard</div>
+    <div class="controls">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Run</span>
+        <select id="selRun"><option value="">Loading…</option></select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Model</span>
+        <select id="selModel">
+          <option value="all">All Models</option>
+          <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
+          <option value="anthropic/claude-haiku-3-5">Claude Haiku 3.5</option>
+          <option value="groq/llama-3.1-70b-versatile">Llama 3.1 70B</option>
+          <option value="groq/mixtral-8x7b-32768">Mixtral 8x7B</option>
         </select>
-        <select id="providerSelector" class="btn" style="font-size:12px;padding:7px 10px;">
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Provider</span>
+        <select id="selProvider">
           <option value="all">All Providers</option>
-          <option value="anthropic">Claude</option>
-          <option value="gemini">Gemini</option>
+          <option value="anthropic">Anthropic</option>
           <option value="groq">Groq</option>
         </select>
-        <button class="btn" id="refreshBtn" type="button">Refresh</button>
+      </div>
+      <button class="btn-refresh" id="btnRefresh">&#8635; Refresh</button>
+    </div>
+  </div>
+
+  <!-- header -->
+  <div class="page-header">
+    <h1>Developer Dashboard</h1>
+    <span class="sub" id="dbPath">DB: —</span>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid">
+    <div class="card col-12">
+      <div class="card-body">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="k-label">Total Calls</div><div class="k-val" id="kTotal">—</div><div class="k-sub">across all models</div></div>
+          <div class="kpi"><div class="k-label">Adversarial Prompts</div><div class="k-val" id="kDrift">—</div><div class="k-sub">expected drift</div></div>
+          <div class="kpi"><div class="k-label">Drift Detected</div><div class="k-val" id="kDetected">—</div><div class="k-sub">any WARN / BLOCK</div></div>
+          <div class="kpi"><div class="k-label">Blocked</div><div class="k-val" id="kBlocked">—</div><div class="k-sub">hard BLOCK decisions</div></div>
+        </div>
       </div>
     </div>
 
-    <div class="header">
-      <h1>Developer Dashboard</h1>
-      <div class="subtitle">Live read-only metrics from the SQLite results database.</div>
+    <!-- IDS timeline -->
+    <div class="card col-12">
+      <div class="card-body">
+        <div class="card-title">All 7 IDS Metrics — Running Average <span class="hint" id="timelineHint">Loading…</span></div>
+        <div class="chart-wrap" style="height:340px"><canvas id="chartTimeline"></canvas></div>
+        <div class="status-box" id="statusBox"></div>
+      </div>
     </div>
 
-    <div class="grid">
-      <div class="card kpis">
-        <div class="pad">
-          <div class="kpi-row">
-            <div class="kpi">
-              <div class="label">Total calls</div>
-              <div class="value" id="total_calls">—</div>
-              <div class="meta" id="db_path">DB: —</div>
-            </div>
-            <div class="kpi">
-              <div class="label">Expected drift prompts</div>
-              <div class="value" id="expected_drift_calls">—</div>
-              <div class="meta">Should be blocked/detected in C</div>
-            </div>
-            <div class="kpi">
-              <div class="label">Detected drift</div>
-              <div class="value" id="detected_drift_calls">—</div>
-              <div class="meta">Any WARN/BLOCK signal</div>
-            </div>
-            <div class="kpi">
-              <div class="label">Blocked</div>
-              <div class="value" id="blocked_calls">—</div>
-              <div class="meta">Strict decisions only</div>
-            </div>
-          </div>
-        </div>
+    <!-- DSR/DDR/FPR bar chart -->
+    <div class="card col-12">
+      <div class="card-body">
+        <div class="card-title">Condition Comparison — DSR / DDR / FPR <span class="hint">B · C · C1 · C2</span></div>
+        <div class="chart-wrap" style="height:280px"><canvas id="chartConditions"></canvas></div>
       </div>
+    </div>
 
-      <div class="card chart-card">
-        <div class="pad">
-          <div class="card-title">
-            <h2>All 7 IDS Metrics — Running Average (all conditions)</h2>
-            <div class="hint" id="timelineHint">Loading…</div>
-          </div>
-          <div class="chart-wrap" style="height: 380px;">
-            <canvas id="idsTimelineChart"></canvas>
-          </div>
-          <div class="notice" id="statusBox" style="display:none;"></div>
-        </div>
+    <!-- Results summary table -->
+    <div class="card col-6">
+      <div class="card-body">
+        <div class="card-title">Results Summary <span class="hint">per condition</span></div>
+        <table class="tbl">
+          <thead><tr><th>Condition</th><th>DSR</th><th>DDR</th><th>FPR</th><th>95% CI</th></tr></thead>
+          <tbody id="tblStats"></tbody>
+        </table>
       </div>
+    </div>
 
-      <div class="card chart-card summary-card">
-        <div class="pad">
-          <div class="card-title">
-            <h2>Results Summary</h2>
-            <div class="hint">Condition-level DSR / DDR / FPR from <code>/api/stats</code></div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Condition</th>
-                <th>DSR</th>
-                <th>DDR</th>
-                <th>FPR</th>
-                <th>95% CI (DSR)</th>
-              </tr>
-            </thead>
-            <tbody id="resultsSummaryBody"></tbody>
+    <!-- Model comparison table -->
+    <div class="card col-6">
+      <div class="card-body">
+        <div class="card-title">Model Comparison <span class="hint">DSR on C (full middleware)</span></div>
+        <div class="chart-wrap" style="height:220px"><canvas id="chartModels"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Cross-run table -->
+    <div class="card col-12">
+      <div class="card-body">
+        <div class="card-title">Cross-Run Comparison <span class="hint">all runs · B / C / C1 / C2</span></div>
+        <div style="overflow-x:auto">
+          <table class="tbl" id="tblRuns">
+            <thead id="tblRunsHead"></thead>
+            <tbody id="tblRunsBody"></tbody>
           </table>
-        </div>
-      </div>
-
-      <div class="card chart-card summary-card">
-        <div class="pad">
-          <div class="card-title">
-            <h2>Cross-Run Comparison</h2>
-            <div class="hint">DSR / DDR / FPR for every run — all conditions</div>
-          </div>
-          <div id="crossRunTableWrap" style="overflow-x:auto;">
-            <table id="crossRunTable">
-              <thead id="crossRunHead"></thead>
-              <tbody id="crossRunBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="card chart-card">
-        <div class="pad">
-          <div class="card-title">
-            <h2>Model Comparison</h2>
-            <div class="hint">DSR by provider</div>
-          </div>
-          <div class="chart-wrap" style="height: 260px;">
-            <canvas id="providerComparisonChart"></canvas>
-          </div>
         </div>
       </div>
     </div>
   </div>
+</div>
 
-  <script>
-    let timelineChart = null;
-    let providerComparisonChart = null;
+<script>
+'use strict';
+let chartTimeline = null, chartConditions = null, chartModels = null;
 
-    function showStatus(message) {
-      const el = document.getElementById('statusBox');
-      el.style.display = 'block';
-      el.innerHTML = message;
-    }
-    function clearStatus() {
-      const el = document.getElementById('statusBox');
-      el.style.display = 'none';
-      el.innerHTML = '';
-    }
+const $ = id => document.getElementById(id);
 
-    async function fetchJson(url) {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`${url} -> ${res.status}`);
-      return await res.json();
-    }
+function showStatus(msg){ const b=$('statusBox'); b.style.display='block'; b.innerHTML=msg; }
+function clearStatus(){ const b=$('statusBox'); b.style.display='none'; b.innerHTML=''; }
 
-    async function loadRuns() {
-      const data = await fetchJson('/api/runs');
-      const sel = document.getElementById('runSelector');
-      const current = sel.value;
-      sel.innerHTML = '';
-      for (const run of data.runs) {
-        const opt = document.createElement('option');
-        opt.value = run.run_id;
-        opt.textContent = `${run.run_id} (${run.row_count} rows, ${run.mode})`;
-        sel.appendChild(opt);
-      }
-      if (current && data.runs.some(r => r.run_id === current)) {
-        sel.value = current;
-      } else if (data.runs.length) {
-        sel.value = data.runs[0].run_id;
-      }
-    }
+async function api(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error(url+' -> '+r.status);
+  return r.json();
+}
 
-    function getSelectedRunId() {
-      return document.getElementById('runSelector').value || null;
-    }
+function runId(){ return $('selRun').value||null; }
+function withRun(u){ const id=runId(); return id?u+(u.includes('?')?'&':'?')+'run_id='+encodeURIComponent(id):u; }
+function withRunProvider(u){
+  let url=withRun(u);
+  const p=$('selProvider').value||'all';
+  if(p!=='all') url+=( url.includes('?')?'&':'?')+'provider='+encodeURIComponent(p);
+  return url;
+}
 
-    function withRunId(url) {
-      const runId = getSelectedRunId();
-      if (!runId) return url;
-      const sep = url.includes('?') ? '&' : '?';
-      return `${url}${sep}run_id=${encodeURIComponent(runId)}`;
-    }
+/* ── Chart defaults ── */
+Chart.defaults.color='rgba(255,255,255,0.65)';
+Chart.defaults.borderColor='rgba(255,255,255,0.07)';
+Chart.defaults.font.family='ui-sans-serif,system-ui,sans-serif';
 
-    function withRunAndProvider(url) {
-      const runUrl = withRunId(url);
-      const provider = document.getElementById('providerSelector').value || 'all';
-      const sep = runUrl.includes('?') ? '&' : '?';
-      return `${runUrl}${sep}provider=${encodeURIComponent(provider)}`;
-    }
+function lineDataset(label,data,color,dash=[]){
+  return{label,data:data||[],borderColor:color,backgroundColor:color.replace(/[\d.]+\)$/,'0.08)'),
+    borderWidth:label.includes('Base')?2.5:1.8,fill:false,tension:0.35,
+    pointRadius:0,pointHoverRadius:5,borderDash:dash};
+}
 
-    async function loadHealth() {
-      const data = await fetchJson('/api/health');
-      document.getElementById('db_path').textContent = `DB: ${data.db_path}`;
-      if (!data.db_exists) {
-        showStatus(`<strong>Database missing.</strong> Run the experiment first to create results.`);
-      }
-    }
+/* ── Load runs dropdown ── */
+async function loadRuns(){
+  const d=await api('/api/runs');
+  const sel=$('selRun'), cur=sel.value;
+  sel.innerHTML='';
+  for(const r of d.runs){
+    const o=document.createElement('option');
+    o.value=r.run_id;
+    const ts=r.started_at.slice(0,16).replace('T',' ');
+    o.textContent=`${ts}  (${r.row_count} rows, ${r.mode})`;
+    sel.appendChild(o);
+  }
+  if(cur && d.runs.some(r=>r.run_id===cur)) sel.value=cur;
+  else if(d.runs.length) sel.value=d.runs[0].run_id;
+}
 
-    async function loadOverview() {
-      const data = await fetchJson(withRunId('/api/overview'));
-      document.getElementById('total_calls').textContent = data.total_calls;
-      document.getElementById('expected_drift_calls').textContent = data.expected_drift_calls;
-      document.getElementById('detected_drift_calls').textContent = data.detected_drift_calls;
-      document.getElementById('blocked_calls').textContent = data.blocked_calls;
-    }
+/* ── KPIs ── */
+async function loadOverview(){
+  const d=await api(withRun('/api/overview'));
+  $('kTotal').textContent=d.total_calls;
+  $('kDrift').textContent=d.expected_drift_calls;
+  $('kDetected').textContent=d.detected_drift_calls;
+  $('kBlocked').textContent=d.blocked_calls;
+}
 
-    async function loadResultsSummaryTable() {
-      const data = await fetchJson(withRunAndProvider('/api/stats'));
-      const stats = data.stats || {};
-      const order = [
-        ['A_no_contract', 'A'],
-        ['B_prompt_contract', 'B'],
-        ['C_rmic_middleware', 'C'],
-        ['C1_hard_rules_only', 'C1'],
-        ['C2_ids_only', 'C2'],
-      ];
-      const tbody = document.getElementById('resultsSummaryBody');
-      tbody.innerHTML = '';
-      for (const [key, label] of order) {
-        const row = stats[key] || {};
-        const ci = row.dsr_ci || [0, 0];
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${label}</td>
-          <td>${Number(row.dsr || 0).toFixed(2)}</td>
-          <td>${Number(row.ddr || 0).toFixed(2)}</td>
-          <td>${Number(row.fpr || 0).toFixed(2)}</td>
-          <td>[${Number(ci[0] || 0).toFixed(2)}, ${Number(ci[1] || 0).toFixed(2)}]</td>
-        `;
-        tbody.appendChild(tr);
+/* ── IDS timeline ── */
+async function loadTimeline(){
+  const hint=$('timelineHint');
+  hint.textContent='Loading…';
+  const d=await api(withRun('/api/ids-timeline'));
+  const n=d.labels?.length??0;
+  hint.textContent=n?`${n} data points`:'No data yet';
+  const ctx=$('chartTimeline');
+  const cfg={
+    type:'line',
+    data:{labels:d.labels||[],datasets:[
+      lineDataset('Base IDS',d.base_ids,'rgba(124,58,237,1)'),
+      lineDataset('Mahalanobis',d.mahalanobis,'rgba(59,130,246,1)'),
+      lineDataset('KL Divergence',d.kl_divergence,'rgba(245,158,11,1)',[5,3]),
+      lineDataset('Jensen-Shannon',d.js_divergence,'rgba(34,197,94,1)'),
+      lineDataset('Wasserstein',d.wasserstein,'rgba(239,68,68,1)',[5,3]),
+      lineDataset('Hellinger',d.hellinger,'rgba(236,72,153,1)'),
+      lineDataset('Tool Frequency',d.tool_frequency,'rgba(20,184,166,1)',[5,3]),
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{labels:{color:'rgba(255,255,255,0.85)',usePointStyle:true,pointStyleWidth:14,padding:16,font:{size:12}}},
+        tooltip:{callbacks:{label(c){const v=c.parsed?.y;return v==null?` ${c.dataset.label}: N/A`:` ${c.dataset.label}: ${v.toFixed(4)}`;}}}
+      },
+      scales:{
+        x:{ticks:{maxTicksLimit:12,maxRotation:0,font:{size:11}},grid:{color:'rgba(255,255,255,0.05)'}},
+        y:{min:0,max:1,ticks:{stepSize:0.1,font:{size:11}},grid:{color:'rgba(255,255,255,0.06)'}}
       }
     }
+  };
+  if(chartTimeline) chartTimeline.destroy();
+  chartTimeline=new Chart(ctx,cfg);
+}
 
-    async function loadCrossRunComparison() {
-      const data = await fetchJson('/api/runs-comparison');
-      const selectedProvider = (document.getElementById('providerSelector').value || 'all').toLowerCase();
-      let runs = data.runs || [];
-      if (selectedProvider !== 'all') {
-        runs = runs.filter((run) => {
-          const model = String(run.model || '').toLowerCase();
-          if (selectedProvider === 'anthropic') return model.includes('claude') || model.includes('anthropic');
-          return model.includes(selectedProvider);
-        });
-      }
-      if (!runs.length) {
-        document.getElementById('crossRunHead').innerHTML = '';
-        document.getElementById('crossRunBody').innerHTML = '';
-        return;
-      }
-
-      const conditions = ['A', 'B', 'C', 'C1', 'C2'];
-      const thead = document.getElementById('crossRunHead');
-      const tbody = document.getElementById('crossRunBody');
-
-      // Header row
-      let headerHtml = '<tr><th>Run</th><th>Model</th><th>Rows</th>';
-      for (const c of conditions) {
-        headerHtml += `<th colspan="3" style="text-align:center;border-left:1px solid rgba(255,255,255,0.15)">${c}</th>`;
-      }
-      headerHtml += '</tr>';
-      headerHtml += '<tr><th></th><th></th><th></th>';
-      for (const c of conditions) {
-        headerHtml += `<th style="color:var(--ok);border-left:1px solid rgba(255,255,255,0.15)">DSR</th>
-                       <th style="color:var(--warn)">DDR</th>
-                       <th style="color:var(--bad)">FPR</th>`;
-      }
-      headerHtml += '</tr>';
-      thead.innerHTML = headerHtml;
-
-      // Data rows
-      tbody.innerHTML = '';
-      runs.forEach((run, i) => {
-        const label = `Run ${i + 1}`;
-        let row = `<tr>
-          <td><strong>${label}</strong><br><span style="font-size:11px;color:var(--muted)">${run.started_at.slice(0,16).replace('T',' ')}</span></td>
-          <td style="font-size:12px">${run.model}</td>
-          <td>${run.row_count}</td>`;
-        for (const c of conditions) {
-          const s = run.conditions[c] || {};
-          const dsr = (s.dsr ?? 0).toFixed(2);
-          const ddr = (s.ddr ?? 0).toFixed(2);
-          const fpr = (s.fpr ?? 0).toFixed(2);
-          const dsrColor = s.dsr >= 0.99 ? 'var(--ok)' : s.dsr >= 0.8 ? 'var(--warn)' : 'var(--bad)';
-          const fprColor = s.fpr <= 0.05 ? 'var(--ok)' : s.fpr <= 0.2 ? 'var(--warn)' : 'var(--bad)';
-          row += `<td style="color:${dsrColor};font-weight:700;border-left:1px solid rgba(255,255,255,0.10)">${dsr}</td>
-                  <td style="color:var(--warn)">${ddr}</td>
-                  <td style="color:${fprColor}">${fpr}</td>`;
-        }
-        row += '</tr>';
-        tbody.innerHTML += row;
-      });
-    }
-
-    async function loadTimeline() {
-      const hint = document.getElementById('timelineHint');
-      hint.textContent = 'Loading…';
-      const data = await fetchJson(withRunId('/api/ids-timeline'));
-      const provider = document.getElementById('providerSelector').value || 'all';
-      const providerLabel = provider === 'all' ? 'All' : provider.charAt(0).toUpperCase() + provider.slice(1);
-      const n = data.labels?.length ?? 0;
-      hint.textContent = n ? `Points: ${n} (all conditions)` : 'No data yet';
-
-      const ctx = document.getElementById('idsTimelineChart');
-      const mk = (label, arr, color, dash = []) => ({
-        label,
-        data: arr || [],
-        borderWidth: label === 'Base IDS' ? 2.5 : 1.8,
-        borderColor: color,
-        backgroundColor: color.replace('0.95', '0.05').replace('0.90', '0.05'),
-        fill: false,
-        tension: 0.3,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        borderDash: dash,
-      });
-
-      const config = {
-        type: 'line',
-        data: {
-          labels: data.labels || [],
-          datasets: [
-            mk(`Base IDS (${providerLabel})`, data.base_ids, 'rgba(124, 58, 237, 0.95)'),
-            mk('Mahalanobis',         data.mahalanobis,   'rgba(59, 130, 246, 0.95)'),
-            mk('KL Divergence',       data.kl_divergence, 'rgba(245, 158, 11, 0.95)',  [4, 2]),
-            mk('Jensen–Shannon',      data.js_divergence, 'rgba(34, 197, 94, 0.95)'),
-            mk('Wasserstein',         data.wasserstein,   'rgba(239, 68, 68, 0.90)',   [4, 2]),
-            mk('Hellinger',           data.hellinger,     'rgba(236, 72, 153, 0.90)'),
-            mk('Tool Frequency Drift',data.tool_frequency,'rgba(20, 184, 166, 0.90)',  [4, 2]),
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: {
-              labels: {
-                color: 'rgba(255,255,255,0.85)',
-                usePointStyle: true,
-                pointStyleWidth: 16,
-                padding: 14,
-                font: { size: 12 },
-              },
-            },
-            tooltip: {
-              mode: 'index',
-              intersect: false,
-              callbacks: {
-                label(ctx) {
-                  const v = ctx.parsed?.y;
-                  if (v == null || isNaN(v)) return ` ${ctx.dataset.label}: N/A`;
-                  return ` ${ctx.dataset.label}: ${v.toFixed(4)}`;
-                },
-              },
-            },
-          },
-          scales: {
-            x: {
-              ticks: { color: 'rgba(255,255,255,0.65)', maxRotation: 0, maxTicksLimit: 10, font: { size: 11 } },
-              grid:  { color: 'rgba(255,255,255,0.05)' },
-            },
-            y: {
-              min: 0, max: 1,
-              ticks: { color: 'rgba(255,255,255,0.65)', stepSize: 0.1, font: { size: 11 } },
-              grid:  { color: 'rgba(255,255,255,0.06)' },
-            },
-          },
-        },
-      };
-
-      if (timelineChart) timelineChart.destroy();
-      timelineChart = new Chart(ctx, config);
-    }
-
-    async function loadProviderComparison() {
-      const data = await fetchJson(withRunId('/api/provider-comparison'));
-      const providers = data.providers || [];
-      const labels = providers.map(p => (p.provider || 'anthropic').toUpperCase());
-      const values = providers.map(p => {
-        const c = p.conditions?.C_rmic_middleware || {};
-        return Number(c.dsr || 0);
-      });
-      const colors = labels.map(l => l === 'ANTHROPIC' ? '#7c3aed' : l === 'GEMINI' ? '#3b82f6' : '#22c55e');
-      const ctx = document.getElementById('providerComparisonChart');
-      const cfg = {
-        type: 'bar',
-        data: { labels, datasets: [{ label: 'DSR', data: values, backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 0, max: 1 } } },
-      };
-      if (providerComparisonChart) providerComparisonChart.destroy();
-      providerComparisonChart = new Chart(ctx, cfg);
-    }
-
-    async function refreshAll() {
-      clearStatus();
-      try {
-        await loadRuns();
-        await loadHealth();
-        await loadOverview();
-        await loadTimeline();
-        await loadResultsSummaryTable();
-        await loadProviderComparison();
-        await loadCrossRunComparison();
-      } catch (err) {
-        showStatus(`<strong>Could not load dashboard data.</strong><br/>${String(err)}`);
+/* ── Condition bar chart ── */
+async function loadConditionChart(){
+  const d=await api(withRunProvider('/api/stats'));
+  const stats=d.stats||{};
+  const order=[['B_prompt_contract','B'],['C_rmic_middleware','C'],['C1_hard_rules_only','C1'],['C2_ids_only','C2']];
+  const labels=order.map(x=>x[1]);
+  const dsr=order.map(x=>+(stats[x[0]]?.dsr||0).toFixed(3));
+  const ddr=order.map(x=>+(stats[x[0]]?.ddr||0).toFixed(3));
+  const fpr=order.map(x=>+(stats[x[0]]?.fpr||0).toFixed(3));
+  const ctx=$('chartConditions');
+  const cfg={
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'DSR (Drift Suppression)',data:dsr,backgroundColor:'rgba(34,197,94,0.75)',borderColor:'rgba(34,197,94,1)',borderWidth:1.5,borderRadius:6},
+      {label:'DDR (Drift Detection)',data:ddr,backgroundColor:'rgba(245,158,11,0.75)',borderColor:'rgba(245,158,11,1)',borderWidth:1.5,borderRadius:6},
+      {label:'FPR (False Positive)',data:fpr,backgroundColor:'rgba(239,68,68,0.65)',borderColor:'rgba(239,68,68,1)',borderWidth:1.5,borderRadius:6},
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'rgba(255,255,255,0.85)',usePointStyle:true,padding:14,font:{size:12}}}},
+      scales:{
+        x:{ticks:{font:{size:13},color:'rgba(255,255,255,0.8)'},grid:{display:false}},
+        y:{min:0,max:1,ticks:{stepSize:0.2,font:{size:11}},grid:{color:'rgba(255,255,255,0.06)'}}
       }
     }
+  };
+  if(chartConditions) chartConditions.destroy();
+  chartConditions=new Chart(ctx,cfg);
 
-    document.getElementById('refreshBtn').addEventListener('click', refreshAll);
-    document.getElementById('runSelector').addEventListener('change', refreshAll);
-    document.getElementById('providerSelector').addEventListener('change', refreshAll);
-    refreshAll();
-  </script>
+  /* also fill stats table */
+  const tbody=$('tblStats'); tbody.innerHTML='';
+  for(const [key,label] of order){
+    const s=stats[key]||{};
+    const ci=s.dsr_ci||[0,0];
+    const dsr_v=+(s.dsr||0);
+    const fpr_v=+(s.fpr||0);
+    const dsrColor=dsr_v>=0.99?'var(--ok)':dsr_v>=0.8?'var(--warn)':'var(--bad)';
+    const fprColor=fpr_v<=0.05?'var(--ok)':fpr_v<=0.2?'var(--warn)':'var(--bad)';
+    tbody.innerHTML+=`<tr>
+      <td><strong>${label}</strong></td>
+      <td style="color:${dsrColor};font-weight:700">${dsr_v.toFixed(2)}</td>
+      <td style="color:var(--warn)">${(+(s.ddr||0)).toFixed(2)}</td>
+      <td style="color:${fprColor}">${fpr_v.toFixed(2)}</td>
+      <td style="color:var(--muted);font-size:11px">[${(+ci[0]).toFixed(2)}, ${(+ci[1]).toFixed(2)}]</td>
+    </tr>`;
+  }
+}
 
+/* ── Model comparison bar chart ── */
+async function loadModelChart(){
+  const d=await api(withRun('/api/model-comparison'));
+  const models=d.models||[];
+  const labels=models.map(m=>m.label||m.model);
+  const dsr=models.map(m=>+(m.conditions?.C_rmic_middleware?.dsr||0).toFixed(3));
+  const colors=models.map(m=>m.provider==='groq'?'rgba(34,197,94,0.75)':'rgba(124,58,237,0.75)');
+  const borders=models.map(m=>m.provider==='groq'?'rgba(34,197,94,1)':'rgba(124,58,237,1)');
+  const ctx=$('chartModels');
+  const cfg={
+    type:'bar',
+    data:{labels,datasets:[{label:'DSR on Condition C',data:dsr,backgroundColor:colors,borderColor:borders,borderWidth:1.5,borderRadius:6}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{font:{size:11},maxRotation:15},grid:{display:false}},
+        y:{min:0,max:1,ticks:{stepSize:0.2,font:{size:11}},grid:{color:'rgba(255,255,255,0.06)'}}
+      }
+    }
+  };
+  if(chartModels) chartModels.destroy();
+  chartModels=new Chart(ctx,cfg);
+}
+
+/* ── Cross-run table ── */
+async function loadCrossRun(){
+  const d=await api('/api/runs-comparison');
+  const runs=d.runs||[];
+  const conds=[['B','B'],['C','C'],['C1','C1'],['C2','C2']];
+  const head=$('tblRunsHead'), body=$('tblRunsBody');
+  let hh='<tr><th>Run</th><th>Model</th><th>Rows</th>';
+  for(const [,l] of conds) hh+=`<th colspan="3" style="text-align:center;border-left:1px solid var(--border)">${l}</th>`;
+  hh+='</tr><tr><th></th><th></th><th></th>';
+  for(const [,] of conds) hh+=`<th style="color:var(--ok);border-left:1px solid var(--border)">DSR</th><th style="color:var(--warn)">DDR</th><th style="color:var(--bad)">FPR</th>`;
+  hh+='</tr>';
+  head.innerHTML=hh;
+  body.innerHTML='';
+  runs.forEach((run,i)=>{
+    const ts=run.started_at.slice(0,16).replace('T',' ');
+    let row=`<tr><td><strong>Run ${i+1}</strong><br><span style="font-size:10px;color:var(--muted)">${ts}</span></td><td style="font-size:11px">${run.model}</td><td>${run.row_count}</td>`;
+    for(const [c,] of conds){
+      const s=run.conditions[c]||{};
+      const dv=+(s.dsr??0),fv=+(s.fpr??0);
+      const dc=dv>=0.99?'var(--ok)':dv>=0.8?'var(--warn)':'var(--bad)';
+      const fc=fv<=0.05?'var(--ok)':fv<=0.2?'var(--warn)':'var(--bad)';
+      row+=`<td style="color:${dc};font-weight:700;border-left:1px solid rgba(255,255,255,0.07)">${dv.toFixed(2)}</td><td style="color:var(--warn)">${(+(s.ddr??0)).toFixed(2)}</td><td style="color:${fc}">${fv.toFixed(2)}</td>`;
+    }
+    row+='</tr>';
+    body.innerHTML+=row;
+  });
+}
+
+/* ── Health ── */
+async function loadHealth(){
+  const d=await api('/api/health');
+  $('dbPath').textContent='DB: '+d.db_path;
+  if(!d.db_exists) showStatus('<strong>Database not found.</strong> Run the experiment first.');
+}
+
+/* ── Refresh all ── */
+async function refreshAll(){
+  clearStatus();
+  try{
+    await loadRuns();
+    await Promise.all([loadHealth(),loadOverview(),loadTimeline(),loadConditionChart(),loadModelChart(),loadCrossRun()]);
+  }catch(e){
+    showStatus('<strong>Error loading data.</strong> '+String(e));
+  }
+}
+
+$('btnRefresh').addEventListener('click',refreshAll);
+$('selRun').addEventListener('change',refreshAll);
+$('selProvider').addEventListener('change',()=>Promise.all([loadConditionChart(),loadCrossRun()]));
+$('selModel').addEventListener('change',()=>Promise.all([loadConditionChart(),loadModelChart()]));
+
+refreshAll();
+</script>
 </body>
 </html>

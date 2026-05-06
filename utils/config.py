@@ -11,14 +11,14 @@ import yaml
 DEFAULT_CONFIG: dict[str, Any] = {
     "model": {
         "provider": "anthropic",
-        "anthropic_model": "claude-sonnet-4-6",
-        "gemini_model": "gemini/gemini-2.0-flash",
-        "groq_model": "groq/llama-3.3-70b-versatile",
+        "anthropic_model": "anthropic/claude-sonnet-4-6",
+        "anthropic_haiku_model": "anthropic/claude-haiku-3-5",
+        "groq_model": "groq/llama-3.1-70b-versatile",
+        "groq_mixtral_model": "groq/mixtral-8x7b-32768",
         "temperature": 0.2,
         "max_tokens": 1024,
         "rate_limits": {
             "anthropic_rps": 1.0,
-            "gemini_rps": 4.0,
             "groq_rps": 0.5,
         },
         "retry": {
@@ -42,9 +42,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "velocity_threshold": 0.05,
     },
     "experiment": {
-        "multi_model_mode": False,
-        "providers_to_test": ["anthropic", "gemini", "groq"],
+        "multi_model_mode": True,
+        "models_to_test": [
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-haiku-3-5",
+            "groq/llama-3.1-70b-versatile",
+            "groq/mixtral-8x7b-32768",
+        ],
+        "providers_to_test": ["anthropic", "groq"],
         "ensure_identical_prompts": True,
+        "conditions": [
+            "B_prompt_contract",
+            "C_rmic_middleware",
+            "C1_hard_rules_only",
+            "C2_ids_only",
+        ],
     },
 }
 
