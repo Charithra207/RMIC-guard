@@ -12,9 +12,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": {
         "provider": "anthropic",
         "anthropic_model": "anthropic/claude-sonnet-4-6",
-        "anthropic_haiku_model": "anthropic/claude-haiku-3-5",
-        "groq_model": "groq/llama-3.1-70b-versatile",
-        "groq_mixtral_model": "groq/mixtral-8x7b-32768",
+        "anthropic_haiku_model": "anthropic/claude-haiku-4-5",
+        "groq_model": "groq/llama-3.3-70b-versatile",
+        "groq_mixtral_model": "groq/llama-3.1-8b-instant",
         "temperature": 0.2,
         "max_tokens": 1024,
         "rate_limits": {
@@ -45,9 +45,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "multi_model_mode": True,
         "models_to_test": [
             "anthropic/claude-sonnet-4-6",
-            "anthropic/claude-haiku-3-5",
-            "groq/llama-3.1-70b-versatile",
-            "groq/mixtral-8x7b-32768",
+            "anthropic/claude-haiku-4-5",
+            "groq/llama-3.3-70b-versatile",
+            "groq/llama-3.1-8b-instant",
         ],
         "providers_to_test": ["anthropic", "groq"],
         "ensure_identical_prompts": True,

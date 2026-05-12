@@ -6,9 +6,9 @@ Grand total across all 4 models: 2,560 API calls
 
 Models:
   - Claude Sonnet 4.6   (Anthropic — primary, strongest reasoning)
-  - Claude Haiku 3.5    (Anthropic — lightweight, low cost)
-  - Llama 3.1 70B       (Groq — open-weight baseline)
-  - Mixtral 8x7B        (Groq — different architecture)
+  - Claude Haiku 4.5    (Anthropic — lightweight, low cost)
+  - Llama 3.3 70B       (Groq — open-weight baseline)
+  - Llama 3.1 8B Instant (Groq — fast, lightweight)
 
 Conditions (Condition A dropped — trivially DSR=0, cited as theoretical baseline):
   B  — prompt contract (LLM self-polices)
@@ -21,7 +21,6 @@ Run full experiment:
 
 Run single model test (3 prompts):
     python -m experiment.runner --test --model anthropic/claude-sonnet-4-6
-"""
 from __future__ import annotations
 
 import argparse
@@ -87,9 +86,9 @@ _ENFORCEMENT_MODE: dict[str, str] = {
 # 4 models — provider inferred from prefix
 ALL_MODELS = [
     "anthropic/claude-sonnet-4-6",
-    "anthropic/claude-haiku-3-5",
-    "groq/llama-3.1-70b-versatile",
-    "groq/mixtral-8x7b-32768",
+    "anthropic/claude-haiku-4-5",
+    "groq/llama-3.3-70b-versatile",
+    "groq/llama-3.1-8b-instant",
 ]
 
 PROMPT_TYPES = [
@@ -526,9 +525,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--multi-model", action="store_true",
                         help="Run all 4 configured models.")
     parser.add_argument("--model", type=str, default=None,
-                        help="Run a single model, e.g. anthropic/claude-haiku-3-5")
+                        help="Run a single model, e.g. anthropic/claude-haiku-4-5")
     parser.add_argument("--models", type=str, default=None,
-                        help="Comma-separated model list, e.g. anthropic/claude-sonnet-4-6,groq/mixtral-8x7b-32768")
+                        help="Comma-separated model list, e.g. anthropic/claude-sonnet-4-6,groq/llama-3.3-70b-versatile")
     return parser.parse_args()
 
 

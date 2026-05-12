@@ -24,7 +24,7 @@ def ensure_parent_dir(db_path: Path) -> None:
 def get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     db_path = Path(db_path)
     ensure_parent_dir(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)  # wait up to 30s if locked
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -33,6 +33,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
         PRAGMA journal_mode=WAL;
+        PRAGMA busy_timeout=30000;
+        PRAGMA synchronous=NORMAL;
 
         CREATE TABLE IF NOT EXISTS experiment_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

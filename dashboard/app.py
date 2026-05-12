@@ -28,16 +28,16 @@ app = FastAPI(title="RMIC Guard Dashboard", version="2.0.0")
 # 4 models used in the redesigned experiment
 KNOWN_MODELS = [
     "anthropic/claude-sonnet-4-6",
-    "anthropic/claude-haiku-3-5",
-    "groq/llama-3.1-70b-versatile",
-    "groq/mixtral-8x7b-32768",
+    "anthropic/claude-haiku-4-5",
+    "groq/llama-3.3-70b-versatile",
+    "groq/llama-3.1-8b-instant",
 ]
 
 MODEL_LABELS = {
     "anthropic/claude-sonnet-4-6":    "Claude Sonnet 4.6",
-    "anthropic/claude-haiku-3-5":     "Claude Haiku 3.5",
-    "groq/llama-3.1-70b-versatile":   "Llama 3.1 70B",
-    "groq/mixtral-8x7b-32768":        "Mixtral 8x7B",
+    "anthropic/claude-haiku-4-5":     "Claude Haiku 4.5",
+    "groq/llama-3.3-70b-versatile":   "Llama 3.3 70B",
+    "groq/llama-3.1-8b-instant":      "Llama 3.1 8B Instant",
 }
 
 # Conditions used (A dropped)

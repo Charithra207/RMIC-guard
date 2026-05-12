@@ -31,9 +31,9 @@ Condition = Literal["A", "B", "C"]
 
 # ── Model defaults ────────────────────────────────────────────────────────────
 DEFAULT_ANTHROPIC_MODEL        = "anthropic/claude-sonnet-4-6"
-DEFAULT_ANTHROPIC_HAIKU_MODEL  = "anthropic/claude-haiku-3-5"
-DEFAULT_GROQ_MODEL             = "groq/llama-3.1-70b-versatile"
-DEFAULT_GROQ_MIXTRAL_MODEL     = "groq/mixtral-8x7b-32768"
+DEFAULT_ANTHROPIC_HAIKU_MODEL  = "anthropic/claude-haiku-4-5"
+DEFAULT_GROQ_MODEL             = "groq/llama-3.3-70b-versatile"
+DEFAULT_GROQ_MIXTRAL_MODEL     = "groq/llama-3.1-8b-instant"
 
 # Retired Anthropic model IDs that return 404
 _RETIRED_ANTHROPIC_MODELS: frozenset[str] = frozenset({
